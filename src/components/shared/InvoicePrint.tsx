@@ -68,10 +68,21 @@ export const InvoicePrint = forwardRef<HTMLDivElement, InvoicePrintProps>(({ doc
         <tbody>
           {lines.map((l, i) => {
             const unit = sale ? (l as Sale['lines'][number]).unitPrice : (l as Purchase['lines'][number]).purchasePrice
+            // a retail portion is billed in ml / g, not in pieces
+            const measure = sale ? (l as Sale['lines'][number]).unit : undefined
+            const kind = sale ? (l as Sale['lines'][number]).kind : undefined
             return (
               <tr key={i} className="border-b border-wood-cream">
-                <td className="py-2 font-medium">{l.productName}</td>
-                <td className="py-2 text-center">{l.quantity}</td>
+                <td className="py-2 font-medium">
+                  {l.productName}
+                  {kind === 'retail' && measure && (
+                    <span className="ml-1 text-xs text-wood-medium">(détail)</span>
+                  )}
+                </td>
+                <td className="py-2 text-center">
+                  {l.quantity}
+                  {kind === 'retail' && measure ? ` ${measure}` : ''}
+                </td>
                 <td className="py-2 text-right" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
                   {formatMoney(unit, settings.currency)}
                 </td>

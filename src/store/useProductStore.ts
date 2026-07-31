@@ -2,11 +2,14 @@ import { create } from 'zustand'
 import type { Product } from '@/types'
 import { uid } from '@/utils/helpers'
 import { remote } from '@/lib/cloud'
+import { consumeContent, restoreContent, isDivisible } from '@/utils/retail'
 
 interface ProductState {
   products: Product[]
   brands: string[]
   categories: string[]
+  /** Measure units available for retail products (ml, g, L…). */
+  units: string[]
   addProduct: (data: Omit<Product, 'id' | 'createdAt'>) => Product
   updateProduct: (id: string, data: Partial<Product>) => void
   deleteProduct: (id: string) => void
@@ -20,19 +23,33 @@ interface ProductState {
       minQuantity: number
       hasExpiration?: boolean
       expirationDate?: string
+      isDivisible?: boolean
+      unit?: string
+      capacity?: number
+      retailStep?: number
+      retailPrice?: number
     },
   ) => void
   /** Decrease stock after a sale. */
   reduceStock: (productId: string, qty: number) => void
+  /** Sell a fraction of a divisible product: eats the opened container first. */
+  consumeRetail: (productId: string, amount: number) => void
+  /** Give a fraction back (sale cancelled, production recovered). */
+  restoreRetail: (productId: string, amount: number) => void
+  /** Production consumption — whole units, or content when `byContent`. */
+  consumeComponent: (productId: string, quantity: number, byContent?: boolean) => void
+  restoreComponent: (productId: string, quantity: number, byContent?: boolean) => void
   addBrand: (name: string) => void
   addCategory: (name: string) => void
+  addUnit: (name: string) => void
 }
 
 export const useProductStore = create<ProductState>()(
-  (set) => ({
+  (set, get) => ({
     products: [],
     brands: [],
     categories: [],
+    units: [],
     addProduct: (data) => {
       const product: Product = { ...data, id: uid('p'), createdAt: new Date().toISOString() }
       set((s) => ({ products: [product, ...s.products] }))
@@ -69,6 +86,18 @@ export const useProductStore = create<ProductState>()(
                   : patch.hasExpiration === false
                     ? { expirationDate: undefined }
                     : {}),
+                // Retail settings follow the same rule: a purchase line that does
+                // not mention them leaves the product's configuration alone.
+                ...(patch.isDivisible !== undefined ? { isDivisible: patch.isDivisible } : {}),
+                ...(patch.isDivisible
+                  ? {
+                      unit: patch.unit ?? p.unit,
+                      capacity: patch.capacity ?? p.capacity,
+                      retailStep: patch.retailStep ?? p.retailStep,
+                      retailPrice: patch.retailPrice ?? p.retailPrice,
+                      openRemaining: p.openRemaining ?? 0,
+                    }
+                  : {}),
               }
             : p,
         ),
@@ -79,6 +108,35 @@ export const useProductStore = create<ProductState>()(
           p.id === productId ? { ...p, quantity: Math.max(0, p.quantity - qty) } : p,
         ),
       })),
+    consumeRetail: (productId, amount) =>
+      set((s) => ({
+        products: s.products.map((p) =>
+          p.id === productId && isDivisible(p) ? { ...p, ...consumeContent(p, amount) } : p,
+        ),
+      })),
+    restoreRetail: (productId, amount) =>
+      set((s) => ({
+        products: s.products.map((p) =>
+          p.id === productId && isDivisible(p) ? { ...p, ...restoreContent(p, amount) } : p,
+        ),
+      })),
+    consumeComponent: (productId, quantity, byContent) => {
+      const product = get().products.find((p) => p.id === productId)
+      if (!product) return
+      if (byContent && isDivisible(product)) get().consumeRetail(productId, quantity)
+      else get().reduceStock(productId, quantity)
+    },
+    restoreComponent: (productId, quantity, byContent) => {
+      const product = get().products.find((p) => p.id === productId)
+      if (!product) return
+      if (byContent && isDivisible(product)) get().restoreRetail(productId, quantity)
+      else
+        set((s) => ({
+          products: s.products.map((p) =>
+            p.id === productId ? { ...p, quantity: p.quantity + quantity } : p,
+          ),
+        }))
+    },
     addBrand: (name) =>
       set((s) => {
         if (s.brands.includes(name)) return s
@@ -90,6 +148,12 @@ export const useProductStore = create<ProductState>()(
         if (s.categories.includes(name)) return s
         remote.products.addCategory(name)
         return { categories: [...s.categories, name] }
+      }),
+    addUnit: (name) =>
+      set((s) => {
+        if (s.units.includes(name)) return s
+        remote.products.addUnit(name)
+        return { units: [...s.units, name] }
       }),
   }),
 )

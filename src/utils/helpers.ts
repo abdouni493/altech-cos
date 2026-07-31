@@ -73,6 +73,7 @@ export const fullPermissions = (): Permissions => {
     'dashboard',
     'stock',
     'purchase',
+    'production',
     'pos',
     'sales',
     'clients',

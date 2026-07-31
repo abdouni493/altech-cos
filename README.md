@@ -28,6 +28,11 @@ L'application est connectée au projet Supabase `https://iaodxcutsajckdjjqhnk.su
    — le script est idempotent, il peut être relancé sans risque.
 3. Revenir sur l'application → écran de connexion → **« Créer un compte Admin »**.
 
+**Base déjà installée ?** Exécutez plutôt
+[`supabase_migration_retail_production.sql`](supabase_migration_retail_production.sql) : il ajoute la
+vente au détail et le module Production (nouvelles colonnes, tables `tech_sheets` / `productions`, RPC,
+RLS, temps réel) **sans perdre aucune donnée**, et peut être relancé sans risque.
+
 Le fichier SQL contient : toutes les tables (produits, achats + lignes + paiements, ventes + lignes +
 paiements, clients, fournisseurs, employés + acomptes/absences/salaires, dépenses, caisse, sessions de
 scan, journal d'activité), les fonctions RPC derrière **chaque bouton** de l'application
@@ -53,7 +58,41 @@ pour que le build `dist/` fonctionne sans fichier `.env`.
 
 ## Modules
 
-Dashboard · Gestion de Stock · Achats · Point de Vente (POS) · Ventes · Clients · Fournisseurs · Employés · Dépenses · Caisse · Rapports · Paramètres.
+Dashboard · Gestion de Stock · Achats · **Production** · Point de Vente (POS) · Ventes · Clients · Fournisseurs · Employés · Dépenses · Caisse · Rapports · Paramètres.
+
+### Vente au détail — flacon de parfum vendu au millilitre
+
+Un produit peut être vendu **à l'unité** *et* **par portion de son contenu** :
+
+1. **Fiche produit** (Stock → Nouveau produit) → *Activer la vente au détail* : contenance totale d'une
+   unité (100 ml), unité de mesure (`ml`, `g`, `L`… — créables sur place), portion vendue (10 ml) et prix
+   de cette portion (1000 DA).
+2. **Achat** : chaque ligne d'achat peut activer/ajuster ces réglages (contenance, portion, prix de la
+   portion) ; ils sont poussés sur le produit à l'enregistrement.
+3. **Caisse** : cliquer sur un produit au détail demande *combien ?* — le prix suit la quantité
+   (25 ml = 2500 DA). L'unité entière reste vendable en un clic.
+4. **Stock déduit** : la vente puise d'abord dans le **flacon entamé**, puis ouvre un flacon scellé. Le
+   stock affiche donc « **2 × 100 ml + 45 ml** » : deux flacons pleins et 45 ml dans celui du comptoir.
+
+### Production — fiches techniques & lots fabriqués
+
+Deux écrans sous l'onglet **Production** :
+
+- **Fiches techniques** — la recette d'un article : produits consommés (unités entières ou contenu, ex.
+  30 ml d'essence), quantité produite et prix de vente unitaire. La fiche affiche le coût de chaque
+  composant, le coût total, la recette attendue et le bénéfice. **Créer une fiche ne touche jamais au
+  stock.** Cartes avec *voir · modifier · supprimer · lancer la production*.
+- **Productions** — on recherche une fiche par son nom, elle charge composants, quantité produite et
+  prix. Changer la quantité produite **remet la recette à l'échelle automatiquement** et recalcule coût
+  et bénéfice. À l'enregistrement, **les quantités utilisées sont déduites du stock**. Chaque lot offre
+  *voir · modifier · supprimer · **récupérer*** (remise en stock de tous les composants).
+
+Au **POS**, un onglet *Stock de production* liste les lots avec leurs unités restantes, et le bouton
+**Production rapide** permet de lancer une fiche technique sans quitter la caisse : le stock est déduit
+et l'article part directement dans le panier.
+
+**Caisse** et **Rapports** détaillent le coût de production, le bénéfice attendu, le **bénéfice réalisé**
+sur les unités vendues, les matières consommées et l'état des flacons entamés.
 
 ### Scanner les produits avec le téléphone (POS)
 
@@ -88,7 +127,8 @@ Recharts · Framer Motion · date-fns · lucide-react · react-hot-toast · JsBa
 ## Structure
 
 ```
-supabase_schema.sql   schéma SQL complet (tables, RPC, RLS, vues) — à exécuter dans Supabase
+supabase_schema.sql                       schéma SQL complet (tables, RPC, RLS, vues) — install neuve
+supabase_migration_retail_production.sql  mise à jour d'une base existante (détail + production)
 src/
 ├── lib/           supabase (client), cloud (repo + mappers), sync, scanSession, usePhoneScan
 ├── i18n/          traductions FR/AR + hook useTranslation

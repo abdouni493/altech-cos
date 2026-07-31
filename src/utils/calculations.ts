@@ -1,4 +1,13 @@
-import type { Sale, Purchase, Worker, Expense, Product, CaisseTransaction } from '@/types'
+import type {
+  Sale,
+  SaleLine,
+  Purchase,
+  Worker,
+  Expense,
+  Product,
+  CaisseTransaction,
+  Production,
+} from '@/types'
 import { round2, monthKey } from './helpers'
 import {
   startOfDay,
@@ -140,11 +149,13 @@ export interface StoreWealth {
   caisseBalance: number
   /** Purchase-cost value of everything currently in stock. */
   stockValue: number
+  /** Cost value of the finished batches still waiting to be sold. */
+  productionValue: number
   /** Money clients still owe the store. */
   clientReceivables: number
   /** Money the store still owes suppliers. */
   supplierPayables: number
-  /** caisse + stock + receivables − payables. */
+  /** caisse + stock + production + receivables − payables. */
   totalWealth: number
 }
 
@@ -159,19 +170,132 @@ export const storeWealth = (
   expenses: Expense[],
   workers: Worker[],
   products: Product[],
+  productions: Production[] = [],
 ): StoreWealth => {
   const all = caissePeriodStats(transactions, sales, purchases, expenses, workers, VERY_EARLY, VERY_LATE)
   const caisseBalance = all.netFlow
-  const stockValue = round2(products.reduce((s, p) => s + p.quantity * p.purchasePrice, 0))
+  // Sealed units + the content still inside an opened container.
+  const stockValue = round2(
+    products.reduce((s, p) => {
+      const base = p.quantity * p.purchasePrice
+      const open =
+        p.isDivisible && (p.capacity ?? 0) > 0
+          ? ((p.openRemaining ?? 0) / (p.capacity ?? 1)) * p.purchasePrice
+          : 0
+      return s + base + open
+    }, 0),
+  )
+  const productionValue = productionStockValue(productions)
   const clientReceivables = round2(sales.reduce((s, x) => s + Math.max(0, x.total - x.paid), 0))
   const supplierPayables = round2(purchases.reduce((s, x) => s + Math.max(0, x.total - x.paid), 0))
   return {
     caisseBalance,
     stockValue,
+    productionValue,
     clientReceivables,
     supplierPayables,
-    totalWealth: round2(caisseBalance + stockValue + clientReceivables - supplierPayables),
+    totalWealth: round2(
+      caisseBalance + stockValue + productionValue + clientReceivables - supplierPayables,
+    ),
   }
+}
+
+// ----------------------------------------------------------------------------
+// Production analytics
+// ----------------------------------------------------------------------------
+
+/** Finished units of a batch still available for sale. */
+export const productionRemaining = (p: Production): number =>
+  p.status === 'recovered' ? 0 : Math.max(0, round2(p.outputQuantity - p.soldQuantity))
+
+/** Cost of ONE finished unit of a batch. */
+export const productionUnitCost = (p: Production): number =>
+  p.outputQuantity > 0 ? round2(p.totalCost / p.outputQuantity) : 0
+
+/** Cost value of everything produced but not sold yet. */
+export const productionStockValue = (productions: Production[]): number =>
+  round2(
+    productions.reduce((s, p) => s + productionRemaining(p) * productionUnitCost(p), 0),
+  )
+
+export interface ProductionStats {
+  /** Batches manufactured in the period. */
+  count: number
+  /** Finished units manufactured. */
+  producedUnits: number
+  /** Raw material consumed, at purchase cost. */
+  totalCost: number
+  /** What the whole output would bring in once entirely sold. */
+  expectedRevenue: number
+  /** expectedRevenue − totalCost. */
+  expectedGain: number
+  /** Units already sold at the POS. */
+  soldUnits: number
+  /** Cash value of the units already sold. */
+  soldRevenue: number
+  /** Margin actually realised on the units sold. */
+  realisedGain: number
+  /** Units still in the workshop. */
+  remainingUnits: number
+  /** Cost value of those remaining units. */
+  remainingValue: number
+  /** Batches whose components went back to the stock. */
+  recoveredCount: number
+}
+
+export const periodProductions = (productions: Production[], start: Date, end: Date): Production[] =>
+  productions
+    .filter((p) => inRange(p.date, start, end))
+    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+
+export const productionStats = (list: Production[]): ProductionStats => {
+  const active = list.filter((p) => p.status !== 'recovered')
+  const soldUnits = round2(active.reduce((s, p) => s + p.soldQuantity, 0))
+  const soldRevenue = round2(active.reduce((s, p) => s + p.soldQuantity * p.outputUnitPrice, 0))
+  const soldCost = round2(active.reduce((s, p) => s + p.soldQuantity * productionUnitCost(p), 0))
+  return {
+    count: list.length,
+    producedUnits: round2(active.reduce((s, p) => s + p.outputQuantity, 0)),
+    totalCost: round2(active.reduce((s, p) => s + p.totalCost, 0)),
+    expectedRevenue: round2(active.reduce((s, p) => s + p.totalRevenue, 0)),
+    expectedGain: round2(active.reduce((s, p) => s + p.gain, 0)),
+    soldUnits,
+    soldRevenue,
+    realisedGain: round2(soldRevenue - soldCost),
+    remainingUnits: round2(active.reduce((s, p) => s + productionRemaining(p), 0)),
+    remainingValue: productionStockValue(active),
+    recoveredCount: list.filter((p) => p.status === 'recovered').length,
+  }
+}
+
+export interface ProductionComponentAgg {
+  productId: string
+  name: string
+  unit?: string
+  quantity: number
+  cost: number
+}
+
+/** Every raw material eaten by the batches of a period, grouped by product. */
+export const periodProductionComponents = (
+  productions: Production[],
+  start: Date,
+  end: Date,
+): ProductionComponentAgg[] => {
+  const map = new Map<string, ProductionComponentAgg>()
+  periodProductions(productions, start, end)
+    .filter((p) => p.status !== 'recovered')
+    .forEach((p) =>
+      p.lines.forEach((l) => {
+        const cur =
+          map.get(l.productId) ??
+          { productId: l.productId, name: l.productName, unit: l.byContent ? l.unit : undefined, quantity: 0, cost: 0 }
+        cur.quantity = round2(cur.quantity + l.quantity)
+        cur.cost = round2(cur.cost + l.quantity * l.unitCost)
+        map.set(l.productId, cur)
+      }),
+    )
+  return [...map.values()].sort((a, b) => b.cost - a.cost)
 }
 
 export interface DashboardStats {
@@ -312,6 +436,23 @@ export interface ProductSaleAgg {
   gain: number
 }
 
+/**
+ * Cost of one step of a sale line. Lines carry the cost captured at sale time
+ * (exact even if prices moved since, and the only correct figure for a retail
+ * portion or a production output); the product is only a fallback for the
+ * documents saved before that snapshot existed.
+ */
+export const lineUnitCost = (line: SaleLine, product?: Product): number => {
+  if (line.unitCost !== undefined && line.unitCost !== null) return line.unitCost
+  if (line.kind === 'retail' && product && (product.capacity ?? 0) > 0)
+    return round2(product.purchasePrice / (product.capacity ?? 1))
+  return product?.purchasePrice ?? 0
+}
+
+/** Key a sale line aggregates under — production batches have no product id. */
+const lineKey = (line: SaleLine): string =>
+  line.kind === 'production' ? `prod:${line.productionId ?? line.productName}` : line.productId
+
 /** Aggregate every sale LINE whose sale falls in range, grouped by product (with margin). */
 export const periodSoldProducts = (
   sales: Sale[],
@@ -325,17 +466,22 @@ export const periodSoldProducts = (
     .filter((s) => inRange(s.date, start, end))
     .forEach((s) =>
       s.lines.forEach((l) => {
+        const key = lineKey(l)
         const prod = idx.get(l.productId)
+        const category =
+          l.kind === 'production' ? 'Production' : prod?.category ?? '—'
+        const label =
+          l.kind === 'retail' && l.unit ? `${l.productName} (${l.unit})` : l.productName
         const cur =
-          map.get(l.productId) ??
-          { productId: l.productId, name: l.productName, category: prod?.category ?? '—', quantity: 0, revenue: 0, cost: 0, gain: 0 }
+          map.get(key) ??
+          { productId: key, name: label, category, quantity: 0, revenue: 0, cost: 0, gain: 0 }
         const lineRevenue = l.quantity * l.unitPrice
-        const lineCost = l.quantity * (prod?.purchasePrice ?? 0)
-        cur.quantity += l.quantity
+        const lineCost = l.quantity * lineUnitCost(l, prod)
+        cur.quantity = round2(cur.quantity + l.quantity)
         cur.revenue = round2(cur.revenue + lineRevenue)
         cur.cost = round2(cur.cost + lineCost)
         cur.gain = round2(cur.revenue - cur.cost)
-        map.set(l.productId, cur)
+        map.set(key, cur)
       }),
     )
   return [...map.values()].sort((a, b) => b.quantity - a.quantity)

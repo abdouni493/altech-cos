@@ -23,74 +23,105 @@
 --    04. Partners        : suppliers, clients
 --    05. Purchases       : purchases + purchase_lines + purchase_payments
 --    06. Sales / POS     : sales + sale_lines + sale_payments
---    07. Workers         : workers + advances + absences + salary payments
---    08. Expenses        : expenses
---    09. Caisse          : caisse_transactions
---    10. POS Phone Scan  : scan_sessions + scan_events  (scan with phone camera)
---    11. Activity log    : activity_log (every button action can be traced)
---    12. Business RPC    : the exact SQL behind every button of every screen
---    13. AUTH RPC        : create admin account / worker login accounts
+--    07. Production      : tech_sheets (recipes) + productions (batches)
+--    08. Workers         : workers + advances + absences + salary payments
+--    09. Expenses        : expenses
+--    10. Caisse          : caisse_transactions
+--    11. POS Phone Scan  : scan_sessions + scan_events  (scan with phone camera)
+--    12. Activity log    : activity_log (every button action can be traced)
+--    13. Business RPC    : the exact SQL behind every button of every screen
+--    14. AUTH RPC        : create admin account / worker login accounts
 --                          (rows really land in auth.users → direct login)
---    14. Views           : dashboard, caisse, reports & sales-analysis
---    15. Row Level Security policies
---    16. Realtime publication
+--    15. Views           : dashboard, caisse, reports & sales-analysis
+--    16. Row Level Security policies
+--    17. Realtime publication
+--
+--  Already installed an older version? Run supabase_migration_retail_production.sql
+--  instead — it upgrades an existing database without losing any data.
 --
 --  SCREEN → SQL MAP (every interface & every button of the application)
 --  ---------------------------------------------------------------------------
 --  Login.tsx
---     "Créer un compte Admin"  -> rpc create_admin_account(...)   (§13)
---     button visibility        -> rpc admin_exists()              (§13)
+--     "Créer un compte Admin"  -> rpc create_admin_account(...)   (§14)
+--     button visibility        -> rpc admin_exists()              (§14)
 --     "Se connecter"           -> rpc resolve_login_email() + supabase.auth
 --  Dashboard.tsx               -> view v_dashboard_kpis, v_stock_alerts,
---                                 v_expiring_products, v_monthly_revenue  (§14)
+--                                 v_expiring_products, v_monthly_revenue  (§15)
 --  Stock/StockPage.tsx
 --     "Nouveau produit"        -> insert products                 (§03)
 --     "Modifier" / "Supprimer" -> update / delete products
 --     "Code-barres"            -> products.barcode
 --     brand / category creation-> insert brands / categories      (§02)
+--     "Vente au détail"        -> products.is_divisible / unit / capacity /
+--                                 retail_step / retail_price / open_remaining
+--                                 (a 100 ml bottle sold by 10 ml portions),
+--                                 unit creation -> insert measure_units (§02)
 --  Purchase/NewPurchaseModal
---     "Enregistrer"            -> rpc create_purchase(jsonb)      (§12)
+--     "Enregistrer"            -> rpc create_purchase(jsonb)      (§13)
 --                                 (inserts purchase + lines + payment AND
 --                                  updates product stock, prices, min qty,
---                                  expiration date — atomically)
---     "Payer"                  -> rpc add_purchase_payment(...)   (§12)
+--                                  expiration date, retail settings —
+--                                  atomically)
+--     "Payer"                  -> rpc add_purchase_payment(...)   (§13)
 --     "Supprimer"              -> delete from purchases (the app keeps the
 --                                 received stock, like the local screen does);
 --                                 use rpc delete_purchase() instead if you want
 --                                 the quantities rolled back too.
+--  Production/ProductionPage.tsx
+--     "Nouvelle fiche technique"
+--                              -> rpc save_tech_sheet(jsonb)      (§13)
+--                                 (recipe only — the stock is NOT touched)
+--     "Lancer la production"   -> rpc create_production(jsonb)    (§13)
+--                                 (batch + lines AND deducts every component)
+--     "Modifier"               -> rpc update_production(jsonb)    (§13)
+--     "Récupérer"              -> rpc recover_production(id)      (§13)
+--                                 (all used quantities go back to the stock)
+--     "Supprimer"              -> rpc delete_production(id)       (§13)
+--     cards & details          -> view v_production_stats         (§15)
 --  POS/POSPage.tsx
 --     product grid             -> select products
+--     divisible product        -> "combien ?" then a 'retail' sale line whose
+--                                 quantity is in ml/g and whose price follows
+--     production grid          -> select productions (remaining units)
+--     "Production rapide"      -> rpc create_production(jsonb)    (§13)
+--                                 then the batch is dropped into the cart
 --     "Scanner avec mon téléphone"
---                              -> rpc open_scan_session()         (§10/§12)
+--                              -> rpc open_scan_session()         (§11/§13)
 --                                 phone  -> rpc push_scan(session, barcode)
 --                                 caisse <- realtime on scan_events
 --     "Nouveau client"         -> insert clients                  (§04)
---     "Valider la vente"       -> rpc create_sale(jsonb)          (§12)
---                                 (inserts sale + lines + payment AND
---                                  decrements product stock — atomically)
+--     "Valider la vente"       -> rpc create_sale(jsonb)          (§13)
+--                                 (sale + lines + payment AND, per line kind:
+--                                  'product'    -> quantity−
+--                                  'retail'     -> open_remaining− then a new
+--                                                  container is opened
+--                                  'production' -> sold_quantity+)
 --  Sales/SalesPage.tsx
---     "Payer"                  -> rpc add_sale_payment(...)       (§12)
+--     "Payer"                  -> rpc add_sale_payment(...)       (§13)
 --     "Supprimer"              -> delete from sales (mirrors the local screen);
 --                                 rpc delete_sale() also puts the sold
---                                 quantities back in stock.
+--                                 quantities, contents and batches back.
 --  Clients / Suppliers pages   -> insert/update/delete clients / suppliers
 --  Workers/WorkersPage.tsx
---     "Nouvel employé"         -> insert workers                  (§07)
---     "Compte" (has_account)   -> rpc create_worker_account(...)  (§13)
+--     "Nouvel employé"         -> insert workers                  (§08)
+--     "Compte" (has_account)   -> rpc create_worker_account(...)  (§14)
 --                                 => real row in auth.users, worker logs in
---     "Permissions"            -> rpc set_worker_permissions(...) (§12)
---     "Acompte"                -> rpc add_worker_advance(...)     (§12)
---     "Absence"                -> rpc add_worker_absence(...)     (§12)
---     "Payer le salaire"       -> rpc pay_worker_salary(...)      (§12)
---  Expenses/ExpensesPage.tsx   -> insert/update/delete expenses   (§08)
+--     "Permissions"            -> rpc set_worker_permissions(...) (§13)
+--     "Acompte"                -> rpc add_worker_advance(...)     (§13)
+--     "Absence"                -> rpc add_worker_absence(...)     (§13)
+--     "Payer le salaire"       -> rpc pay_worker_salary(...)      (§13)
+--  Expenses/ExpensesPage.tsx   -> insert/update/delete expenses   (§09)
 --  Caisse/CaissePage.tsx
---     "Entrée / Sortie"        -> insert caisse_transactions      (§09)
---     full ledger              -> view v_caisse_ledger            (§14)
---     per-category totals      -> view v_category_stats           (§14)
+--     "Entrée / Sortie"        -> insert caisse_transactions      (§10)
+--     full ledger              -> view v_caisse_ledger            (§15)
+--     per-category totals      -> view v_category_stats           (§15)
+--     production & détail      -> views v_production_stats,
+--                                 v_production_components, v_retail_stock (§15)
 --  Reports/ReportsPage.tsx     -> v_product_sales_stats (best sellers /
 --                                 slow movers), v_category_stats,
+--                                 v_production_stats, v_retail_stock,
 --                                 v_period_summary, v_client_debts,
---                                 v_supplier_debts                (§14)
+--                                 v_supplier_debts                (§15)
 --  Settings/SettingsPage.tsx
 --     "Enregistrer" (magasin)  -> upsert store_settings           (§02)
 --     "Mon compte"             -> update profiles / auth
@@ -198,6 +229,16 @@ create table if not exists public.worker_roles (
   created_at timestamptz not null default now()
 );
 
+-- Measure units of the retail products (ml, g, L…) — the shop adds its own
+create table if not exists public.measure_units (
+  name       text primary key,
+  created_at timestamptz not null default now()
+);
+
+insert into public.measure_units (name) values
+  ('ml'), ('L'), ('g'), ('kg'), ('cm'), ('m'), ('pcs')
+on conflict do nothing;
+
 -- Singleton row (id is forced to 1) — Settings → Informations du Magasin
 create table if not exists public.store_settings (
   id          smallint primary key default 1 check (id = 1),
@@ -238,14 +279,26 @@ create table if not exists public.products (
   min_quantity    integer     not null default 0 check (min_quantity >= 0),
   has_expiration  boolean     not null default false,
   expiration_date date,
+  -- Retail selling: a 100 ml perfume bottle also sold by 10 ml portions.
+  --   quantity       = sealed containers still closed
+  --   capacity       = content of ONE container (100 ml)
+  --   open_remaining = what is left in the container opened at the counter
+  --   retail_step / retail_price = the portion sold and its price
+  is_divisible    boolean       not null default false,
+  unit            text          not null default '',
+  capacity        numeric(12,3) not null default 0,
+  retail_step     numeric(12,3) not null default 0,
+  retail_price    numeric(12,2) not null default 0,
+  open_remaining  numeric(12,3) not null default 0,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
 
-create index if not exists products_barcode_idx  on public.products (barcode);
-create index if not exists products_name_idx     on public.products (lower(name));
-create index if not exists products_category_idx on public.products (category);
-create index if not exists products_brand_idx    on public.products (brand);
+create index if not exists products_barcode_idx   on public.products (barcode);
+create index if not exists products_name_idx      on public.products (lower(name));
+create index if not exists products_category_idx  on public.products (category);
+create index if not exists products_brand_idx     on public.products (brand);
+create index if not exists products_divisible_idx on public.products (is_divisible);
 
 drop trigger if exists trg_products_touch on public.products;
 create trigger trg_products_touch before update on public.products
@@ -272,6 +325,25 @@ $$;
 drop trigger if exists trg_products_referentials on public.products;
 create trigger trg_products_referentials after insert or update of brand, category
 on public.products for each row execute function public.register_product_referentials();
+
+-- Same for a measure unit typed in the retail block of the product form
+create or replace function public.register_product_unit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if coalesce(new.unit, '') <> '' then
+    insert into public.measure_units (name) values (new.unit) on conflict do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_products_unit on public.products;
+create trigger trg_products_unit after insert or update of unit
+on public.products for each row execute function public.register_product_unit();
 
 -- ============================================================================
 -- 04. PARTNERS — suppliers & clients
@@ -336,6 +408,12 @@ create table if not exists public.purchase_lines (
   min_quantity    integer not null default 0,
   has_expiration  boolean not null default false,
   expiration_date date,
+  -- retail settings pushed onto the product when the purchase is saved
+  is_divisible    boolean       not null default false,
+  unit            text          not null default '',
+  capacity        numeric(12,3) not null default 0,
+  retail_step     numeric(12,3) not null default 0,
+  retail_price    numeric(12,2) not null default 0,
   line_total      numeric(12,2) generated always as (quantity * purchase_price) stored
 );
 
@@ -385,15 +463,24 @@ create table if not exists public.sale_lines (
   product_id   text references public.products (id) on delete set null,
   product_name text not null,
   barcode      text not null default '',
-  quantity     integer not null check (quantity > 0),
+  -- decimal: a retail portion may be 12.5 ml
+  quantity     numeric(12,3) not null check (quantity > 0),
   unit_price   numeric(12,2) not null default 0,
   -- purchase price captured at sale time => exact margin, even if prices move
   cost_price   numeric(12,2) not null default 0,
+  -- 'product'    : one whole unit taken from the stock
+  -- 'retail'     : a fraction of a divisible product, `quantity` is in `unit`
+  -- 'production' : a finished article served from a production batch
+  kind         text not null default 'product' check (kind in ('product', 'retail', 'production')),
+  unit         text not null default '',
+  -- FK added in §07 once public.productions exists
+  production_id text,
   line_total   numeric(12,2) generated always as (quantity * unit_price) stored
 );
 
-create index if not exists sale_lines_sale_idx    on public.sale_lines (sale_id);
-create index if not exists sale_lines_product_idx on public.sale_lines (product_id);
+create index if not exists sale_lines_sale_idx       on public.sale_lines (sale_id);
+create index if not exists sale_lines_product_idx    on public.sale_lines (product_id);
+create index if not exists sale_lines_production_idx on public.sale_lines (production_id);
 
 create table if not exists public.sale_payments (
   id         text primary key default public.app_id('pay'),
@@ -411,7 +498,102 @@ create trigger trg_sales_touch before update on public.sales
 for each row execute function public.touch_updated_at();
 
 -- ============================================================================
--- 07. WORKERS
+-- 07. PRODUCTION — technical sheets (recipes) & manufactured batches
+-- ============================================================================
+
+-- A "fiche technique" describes a recipe. Creating one NEVER touches the stock.
+create table if not exists public.tech_sheets (
+  id                text primary key default public.app_id('ft'),
+  name              text not null,
+  description       text not null default '',
+  output_name       text not null default '',
+  output_quantity   numeric(12,3) not null default 0,
+  output_unit_price numeric(12,2) not null default 0,
+  created_by        uuid references public.profiles (id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create index if not exists tech_sheets_name_idx on public.tech_sheets (lower(name));
+
+create table if not exists public.tech_sheet_lines (
+  id           bigserial primary key,
+  sheet_id     text not null references public.tech_sheets (id) on delete cascade,
+  position     integer not null default 0,
+  product_id   text references public.products (id) on delete set null,
+  product_name text not null default '',
+  quantity     numeric(12,3) not null default 0,
+  unit_cost    numeric(12,2) not null default 0,
+  -- true : the recipe eats the CONTENT of a divisible product (ml, g…)
+  by_content   boolean not null default false,
+  unit         text not null default '',
+  line_total   numeric(12,2) generated always as (quantity * unit_cost) stored
+);
+
+create index if not exists tech_sheet_lines_sheet_idx on public.tech_sheet_lines (sheet_id);
+
+drop trigger if exists trg_tech_sheets_touch on public.tech_sheets;
+create trigger trg_tech_sheets_touch before update on public.tech_sheets
+for each row execute function public.touch_updated_at();
+
+-- A batch actually manufactured — this one DOES consume the stock.
+create table if not exists public.productions (
+  id                text primary key default public.app_id('pr'),
+  reference         text not null,
+  sheet_id          text references public.tech_sheets (id) on delete set null,
+  sheet_name        text not null default '',
+  output_name       text not null default '',
+  output_quantity   numeric(12,3) not null default 0,
+  output_unit_price numeric(12,2) not null default 0,
+  total_cost        numeric(12,2) not null default 0,
+  total_revenue     numeric(12,2) not null default 0,
+  gain              numeric(12,2) not null default 0,
+  -- finished units already sold at the point of sale
+  sold_quantity     numeric(12,3) not null default 0,
+  -- 'recovered' : every component went back to the stock
+  status            text not null default 'active' check (status in ('active', 'recovered')),
+  date              timestamptz not null default now(),
+  created_by        uuid references public.profiles (id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create index if not exists productions_date_idx   on public.productions (date desc);
+create index if not exists productions_sheet_idx  on public.productions (sheet_id);
+create index if not exists productions_status_idx on public.productions (status);
+
+create table if not exists public.production_lines (
+  id            bigserial primary key,
+  production_id text not null references public.productions (id) on delete cascade,
+  position      integer not null default 0,
+  product_id    text references public.products (id) on delete set null,
+  product_name  text not null default '',
+  quantity      numeric(12,3) not null default 0,
+  unit_cost     numeric(12,2) not null default 0,
+  by_content    boolean not null default false,
+  unit          text not null default '',
+  line_total    numeric(12,2) generated always as (quantity * unit_cost) stored
+);
+
+create index if not exists production_lines_production_idx on public.production_lines (production_id);
+create index if not exists production_lines_product_idx    on public.production_lines (product_id);
+
+drop trigger if exists trg_productions_touch on public.productions;
+create trigger trg_productions_touch before update on public.productions
+for each row execute function public.touch_updated_at();
+
+-- A sale line may now point at the batch it was served from
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'sale_lines_production_id_fkey') then
+    alter table public.sale_lines
+      add constraint sale_lines_production_id_fkey
+      foreign key (production_id) references public.productions (id) on delete set null;
+  end if;
+end $$;
+
+-- ============================================================================
+-- 08. WORKERS
 -- ============================================================================
 
 create table if not exists public.workers (
@@ -499,7 +681,7 @@ create trigger trg_workers_role after insert or update of role
 on public.workers for each row execute function public.register_worker_role();
 
 -- ============================================================================
--- 08. EXPENSES
+-- 09. EXPENSES
 -- ============================================================================
 
 create table if not exists public.expenses (
@@ -520,7 +702,7 @@ create trigger trg_expenses_touch before update on public.expenses
 for each row execute function public.touch_updated_at();
 
 -- ============================================================================
--- 09. CAISSE — manual cash movements
+-- 10. CAISSE — manual cash movements
 -- ============================================================================
 
 create table if not exists public.caisse_transactions (
@@ -541,7 +723,7 @@ create trigger trg_caisse_touch before update on public.caisse_transactions
 for each row execute function public.touch_updated_at();
 
 -- ============================================================================
--- 10. POS PHONE SCANNER — pair a phone camera with the cash register
+-- 11. POS PHONE SCANNER — pair a phone camera with the cash register
 -- ============================================================================
 -- The cashier opens a session on the POS screen, a QR code is displayed,
 -- the phone opens /scan/<session-id>, films the barcodes and each decode is
@@ -569,7 +751,7 @@ create index if not exists scan_events_session_idx on public.scan_events (sessio
 create index if not exists scan_sessions_owner_idx on public.scan_sessions (created_by);
 
 -- ============================================================================
--- 11. ACTIVITY LOG — traceability of every button action
+-- 12. ACTIVITY LOG — traceability of every button action
 -- ============================================================================
 
 create table if not exists public.activity_log (
@@ -607,7 +789,7 @@ end;
 $$;
 
 -- ============================================================================
--- 12. BUSINESS RPC — the SQL behind the buttons
+-- 13. BUSINESS RPC — the SQL behind the buttons
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -621,7 +803,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $
 declare
   v_id       text := coalesce(payload ->> 'id', public.app_id('pu'));
   v_ref      text := coalesce(payload ->> 'reference', '');
@@ -660,7 +842,8 @@ begin
   loop
     insert into public.purchase_lines (
       purchase_id, product_id, product_name, barcode, quantity,
-      purchase_price, sale_price, min_quantity, has_expiration, expiration_date
+      purchase_price, sale_price, min_quantity, has_expiration, expiration_date,
+      is_divisible, unit, capacity, retail_step, retail_price
     ) values (
       v_id,
       nullif(v_line ->> 'productId', ''),
@@ -671,10 +854,15 @@ begin
       coalesce((v_line ->> 'salePrice')::numeric, 0),
       coalesce((v_line ->> 'minQuantity')::int, 0),
       coalesce((v_line ->> 'hasExpiration')::boolean, false),
-      nullif(v_line ->> 'expirationDate', '')::date
+      nullif(v_line ->> 'expirationDate', '')::date,
+      coalesce((v_line ->> 'isDivisible')::boolean, false),
+      coalesce(v_line ->> 'unit', ''),
+      coalesce((v_line ->> 'capacity')::numeric, 0),
+      coalesce((v_line ->> 'retailStep')::numeric, 0),
+      coalesce((v_line ->> 'retailPrice')::numeric, 0)
     );
 
-    -- >>> the stock / pricing refresh asked by the purchase screen <<<
+    -- >>> stock, prix et réglages détail rafraîchis par l'écran d'achat <<<
     update public.products p
        set quantity        = p.quantity + (v_line ->> 'quantity')::int,
            purchase_price  = coalesce((v_line ->> 'purchasePrice')::numeric, p.purchase_price),
@@ -686,7 +874,20 @@ begin
                                  then nullif(v_line ->> 'expirationDate', '')::date
                                when (v_line ->> 'hasExpiration') = 'false' then null
                                else p.expiration_date
-                             end
+                             end,
+           is_divisible    = coalesce((v_line ->> 'isDivisible')::boolean, p.is_divisible),
+           unit            = case when coalesce((v_line ->> 'isDivisible')::boolean, false)
+                                  then coalesce(nullif(v_line ->> 'unit', ''), p.unit)
+                                  else p.unit end,
+           capacity        = case when coalesce((v_line ->> 'isDivisible')::boolean, false)
+                                  then coalesce(nullif((v_line ->> 'capacity')::numeric, 0), p.capacity)
+                                  else p.capacity end,
+           retail_step     = case when coalesce((v_line ->> 'isDivisible')::boolean, false)
+                                  then coalesce(nullif((v_line ->> 'retailStep')::numeric, 0), p.retail_step)
+                                  else p.retail_step end,
+           retail_price    = case when coalesce((v_line ->> 'isDivisible')::boolean, false)
+                                  then coalesce(nullif((v_line ->> 'retailPrice')::numeric, 0), p.retail_price)
+                                  else p.retail_price end
      where p.id = v_line ->> 'productId';
   end loop;
 
@@ -707,7 +908,7 @@ begin
 
   return jsonb_build_object('id', v_id, 'reference', v_ref, 'total', v_total);
 end;
-$$;
+$;
 
 -- PURCHASE → "Payer" (PaymentModal)
 create or replace function public.add_purchase_payment(
@@ -766,13 +967,16 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $
 declare
   v_id      text := coalesce(payload ->> 'id', public.app_id('sa'));
   v_ref     text := coalesce(payload ->> 'reference', '');
   v_line    jsonb;
   v_payment jsonb;
+  v_kind    text;
+  v_qty     numeric;
   v_cost    numeric(12,2);
+  v_cap     numeric;
 begin
   if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
 
@@ -799,23 +1003,48 @@ begin
 
   for v_line in select * from jsonb_array_elements(payload -> 'lines')
   loop
-    select purchase_price into v_cost from public.products where id = v_line ->> 'productId';
+    v_kind := coalesce(v_line ->> 'kind', 'product');
+    v_qty  := coalesce((v_line ->> 'quantity')::numeric, 0);
 
-    insert into public.sale_lines (sale_id, product_id, product_name, barcode, quantity, unit_price, cost_price)
-    values (
+    -- Coût figé à la vente : fourni par la caisse, sinon relu sur le produit
+    v_cost := nullif(v_line ->> 'unitCost', '')::numeric;
+    if v_cost is null then
+      select purchase_price, capacity into v_cost, v_cap
+        from public.products where id = v_line ->> 'productId';
+      if v_kind = 'retail' and coalesce(v_cap, 0) > 0 then
+        v_cost := round(coalesce(v_cost, 0) / v_cap, 2);
+      end if;
+    end if;
+
+    insert into public.sale_lines (
+      sale_id, product_id, product_name, barcode, quantity, unit_price, cost_price,
+      kind, unit, production_id
+    ) values (
       v_id,
       nullif(v_line ->> 'productId', ''),
       coalesce(v_line ->> 'productName', ''),
       coalesce(v_line ->> 'barcode', ''),
-      (v_line ->> 'quantity')::int,
+      v_qty,
       coalesce((v_line ->> 'unitPrice')::numeric, 0),
-      coalesce(v_cost, 0)
+      coalesce(v_cost, 0),
+      v_kind,
+      coalesce(v_line ->> 'unit', ''),
+      nullif(v_line ->> 'productionId', '')
     );
 
-    -- >>> stock decrement <<<
-    update public.products
-       set quantity = greatest(0, quantity - (v_line ->> 'quantity')::int)
-     where id = v_line ->> 'productId';
+    -- >>> mouvement de stock, selon le type de ligne <<<
+    if v_kind = 'retail' then
+      -- une portion sort du flacon entamé, puis d'un flacon scellé si besoin
+      perform public.shift_product_content(v_line ->> 'productId', -v_qty);
+    elsif v_kind = 'production' then
+      update public.productions
+         set sold_quantity = least(output_quantity, sold_quantity + v_qty)
+       where id = v_line ->> 'productionId';
+    else
+      update public.products
+         set quantity = greatest(0, quantity - round(v_qty)::int)
+       where id = v_line ->> 'productId';
+    end if;
   end loop;
 
   for v_payment in select * from jsonb_array_elements(coalesce(payload -> 'payments', '[]'::jsonb))
@@ -835,7 +1064,7 @@ begin
 
   return jsonb_build_object('id', v_id, 'reference', v_ref);
 end;
-$$;
+$;
 
 -- SALE → "Payer" (client debt settlement)
 create or replace function public.add_sale_payment(
@@ -870,19 +1099,333 @@ returns void
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $
+declare v_line record;
 begin
   if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
 
-  update public.products p
-     set quantity = p.quantity + l.quantity
-    from public.sale_lines l
-   where l.sale_id = p_sale_id and l.product_id = p.id;
+  for v_line in
+    select product_id, production_id, quantity, coalesce(kind, 'product') as kind
+      from public.sale_lines
+     where sale_id = p_sale_id
+  loop
+    if v_line.kind = 'retail' and v_line.product_id is not null then
+      perform public.shift_product_content(v_line.product_id, v_line.quantity);
+    elsif v_line.kind = 'production' and v_line.production_id is not null then
+      update public.productions
+         set sold_quantity = greatest(0, sold_quantity - v_line.quantity)
+       where id = v_line.production_id;
+    elsif v_line.product_id is not null then
+      update public.products
+         set quantity = quantity + round(v_line.quantity)::int
+       where id = v_line.product_id;
+    end if;
+  end loop;
 
   delete from public.sales where id = p_sale_id;
   perform public.log_action('sales', 'delete', p_sale_id);
 end;
-$$;
+$;
+
+-- ---------------------------------------------------------------------------
+-- STOCK MOVEMENTS — retail content & production components
+--
+-- Everything is computed on the TOTAL content (sealed containers × capacity +
+-- the opened one) then re-split, so selling 250 ml out of two 100 ml bottles
+-- plus one already opened at 90 ml resolves by itself.
+-- ---------------------------------------------------------------------------
+create or replace function public.shift_product_content(p_product_id text, p_delta numeric)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_cap   numeric;
+  v_qty   numeric;
+  v_open  numeric;
+  v_total numeric;
+begin
+  select capacity, quantity, open_remaining
+    into v_cap, v_qty, v_open
+    from public.products
+   where id = p_product_id
+     for update;
+
+  if not found then return; end if;
+
+  -- produit non divisible : on retombe sur des unités entières
+  if coalesce(v_cap, 0) <= 0 then
+    update public.products
+       set quantity = greatest(0, quantity + round(p_delta)::int)
+     where id = p_product_id;
+    return;
+  end if;
+
+  v_total := greatest(0, coalesce(v_qty, 0) * v_cap + coalesce(v_open, 0) + p_delta);
+
+  update public.products
+     set quantity       = floor(v_total / v_cap)::int,
+         open_remaining = round(v_total - floor(v_total / v_cap) * v_cap, 3)
+   where id = p_product_id;
+end;
+$;
+
+create or replace function public.apply_production_lines(p_production_id text, p_sign integer)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_line record;
+begin
+  for v_line in
+    select product_id, quantity, by_content
+      from public.production_lines
+     where production_id = p_production_id and product_id is not null
+  loop
+    if v_line.by_content then
+      perform public.shift_product_content(v_line.product_id, p_sign * v_line.quantity);
+    else
+      update public.products
+         set quantity = greatest(0, quantity + p_sign * round(v_line.quantity)::int)
+       where id = v_line.product_id;
+    end if;
+  end loop;
+end;
+$;
+
+-- ---------------------------------------------------------------------------
+-- PRODUCTION → "Enregistrer" a fiche technique (never moves the stock)
+-- ---------------------------------------------------------------------------
+create or replace function public.save_tech_sheet(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_id   text := coalesce(payload ->> 'id', public.app_id('ft'));
+  v_line jsonb;
+  v_pos  integer := 0;
+begin
+  if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
+
+  insert into public.tech_sheets (
+    id, name, description, output_name, output_quantity, output_unit_price, created_by, created_at
+  ) values (
+    v_id,
+    coalesce(payload ->> 'name', ''),
+    coalesce(payload ->> 'description', ''),
+    coalesce(payload ->> 'outputName', ''),
+    coalesce((payload ->> 'outputQuantity')::numeric, 0),
+    coalesce((payload ->> 'outputUnitPrice')::numeric, 0),
+    auth.uid(),
+    coalesce((payload ->> 'createdAt')::timestamptz, now())
+  )
+  on conflict (id) do update
+    set name              = excluded.name,
+        description       = excluded.description,
+        output_name       = excluded.output_name,
+        output_quantity   = excluded.output_quantity,
+        output_unit_price = excluded.output_unit_price;
+
+  delete from public.tech_sheet_lines where sheet_id = v_id;
+
+  for v_line in select * from jsonb_array_elements(coalesce(payload -> 'lines', '[]'::jsonb))
+  loop
+    insert into public.tech_sheet_lines (
+      sheet_id, position, product_id, product_name, quantity, unit_cost, by_content, unit
+    ) values (
+      v_id,
+      v_pos,
+      nullif(v_line ->> 'productId', ''),
+      coalesce(v_line ->> 'productName', ''),
+      coalesce((v_line ->> 'quantity')::numeric, 0),
+      coalesce((v_line ->> 'unitCost')::numeric, 0),
+      coalesce((v_line ->> 'byContent')::boolean, false),
+      coalesce(v_line ->> 'unit', '')
+    );
+    v_pos := v_pos + 1;
+  end loop;
+
+  perform public.log_action('production', 'sheet', v_id, jsonb_build_object('name', payload ->> 'name'));
+  return jsonb_build_object('id', v_id);
+end;
+$;
+
+-- ---------------------------------------------------------------------------
+-- PRODUCTION → the batches, which DO move the stock
+-- ---------------------------------------------------------------------------
+create or replace function public.write_production_lines(p_production_id text, p_lines jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_line jsonb;
+  v_pos  integer := 0;
+begin
+  delete from public.production_lines where production_id = p_production_id;
+  for v_line in select * from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb))
+  loop
+    insert into public.production_lines (
+      production_id, position, product_id, product_name, quantity, unit_cost, by_content, unit
+    ) values (
+      p_production_id,
+      v_pos,
+      nullif(v_line ->> 'productId', ''),
+      coalesce(v_line ->> 'productName', ''),
+      coalesce((v_line ->> 'quantity')::numeric, 0),
+      coalesce((v_line ->> 'unitCost')::numeric, 0),
+      coalesce((v_line ->> 'byContent')::boolean, false),
+      coalesce(v_line ->> 'unit', '')
+    );
+    v_pos := v_pos + 1;
+  end loop;
+end;
+$;
+
+create or replace function public.create_production(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_id  text := coalesce(payload ->> 'id', public.app_id('pr'));
+  v_ref text := coalesce(payload ->> 'reference', '');
+begin
+  if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
+
+  if v_ref = '' then
+    select 'PRD-' || extract(year from now())::int || '-' ||
+           lpad((count(*) + 1)::text, 3, '0')
+      into v_ref
+      from public.productions;
+  end if;
+
+  insert into public.productions (
+    id, reference, sheet_id, sheet_name, output_name, output_quantity, output_unit_price,
+    total_cost, total_revenue, gain, sold_quantity, status, date, created_by
+  ) values (
+    v_id,
+    v_ref,
+    nullif(payload ->> 'sheetId', ''),
+    coalesce(payload ->> 'sheetName', ''),
+    coalesce(payload ->> 'outputName', ''),
+    coalesce((payload ->> 'outputQuantity')::numeric, 0),
+    coalesce((payload ->> 'outputUnitPrice')::numeric, 0),
+    coalesce((payload ->> 'totalCost')::numeric, 0),
+    coalesce((payload ->> 'totalRevenue')::numeric, 0),
+    coalesce((payload ->> 'gain')::numeric, 0),
+    coalesce((payload ->> 'soldQuantity')::numeric, 0),
+    coalesce(payload ->> 'status', 'active'),
+    coalesce((payload ->> 'date')::timestamptz, now()),
+    auth.uid()
+  );
+
+  perform public.write_production_lines(v_id, payload -> 'lines');
+
+  -- >>> la déduction du stock demandée par l'écran Production <<<
+  if coalesce(payload ->> 'status', 'active') = 'active' then
+    perform public.apply_production_lines(v_id, -1);
+  end if;
+
+  perform public.log_action('production', 'create', v_id,
+    jsonb_build_object('reference', v_ref, 'cost', payload ->> 'totalCost'));
+
+  return jsonb_build_object('id', v_id, 'reference', v_ref);
+end;
+$;
+
+create or replace function public.update_production(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_id         text := payload ->> 'id';
+  v_old_status text;
+  v_new_status text := coalesce(payload ->> 'status', 'active');
+begin
+  if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
+
+  select status into v_old_status from public.productions where id = v_id for update;
+  if not found then raise exception 'PRODUCTION_NOT_FOUND'; end if;
+
+  -- on remet l'ancienne recette dans le stock avant de repartir de zéro
+  if v_old_status = 'active' then
+    perform public.apply_production_lines(v_id, 1);
+  end if;
+
+  update public.productions
+     set sheet_id          = nullif(payload ->> 'sheetId', ''),
+         sheet_name        = coalesce(payload ->> 'sheetName', sheet_name),
+         output_name       = coalesce(payload ->> 'outputName', output_name),
+         output_quantity   = coalesce((payload ->> 'outputQuantity')::numeric, output_quantity),
+         output_unit_price = coalesce((payload ->> 'outputUnitPrice')::numeric, output_unit_price),
+         total_cost        = coalesce((payload ->> 'totalCost')::numeric, total_cost),
+         total_revenue     = coalesce((payload ->> 'totalRevenue')::numeric, total_revenue),
+         gain              = coalesce((payload ->> 'gain')::numeric, gain),
+         sold_quantity     = coalesce((payload ->> 'soldQuantity')::numeric, sold_quantity),
+         status            = v_new_status,
+         date              = coalesce((payload ->> 'date')::timestamptz, date)
+   where id = v_id;
+
+  perform public.write_production_lines(v_id, payload -> 'lines');
+
+  if v_new_status = 'active' then
+    perform public.apply_production_lines(v_id, -1);
+  end if;
+
+  perform public.log_action('production', 'edit', v_id);
+  return jsonb_build_object('id', v_id);
+end;
+$;
+
+create or replace function public.recover_production(p_production_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+declare v_status text;
+begin
+  if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
+
+  select status into v_status from public.productions where id = p_production_id for update;
+  if not found or v_status = 'recovered' then return; end if;
+
+  perform public.apply_production_lines(p_production_id, 1);
+  update public.productions set status = 'recovered' where id = p_production_id;
+
+  perform public.log_action('production', 'recover', p_production_id);
+end;
+$;
+
+create or replace function public.delete_production(p_production_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+declare v_status text;
+begin
+  if not public.is_member() then raise exception 'NOT_AUTHORIZED'; end if;
+
+  select status into v_status from public.productions where id = p_production_id;
+  if v_status = 'active' then
+    perform public.apply_production_lines(p_production_id, 1);
+  end if;
+
+  delete from public.productions where id = p_production_id;
+  perform public.log_action('production', 'delete', p_production_id);
+end;
+$;
 
 -- ---------------------------------------------------------------------------
 -- WORKERS → acomptes / absences / salaire / permissions
@@ -1089,7 +1632,7 @@ as $$
 $$;
 
 -- ============================================================================
--- 13. AUTH RPC — real accounts inside auth.users
+-- 14. AUTH RPC — real accounts inside auth.users
 -- ============================================================================
 -- These functions insert directly into auth.users / auth.identities with a
 -- bcrypt-hashed password, so the created admin and the created workers can
@@ -1409,7 +1952,7 @@ $$;
 revoke all on function public.link_existing_admin(text, text, text) from public, anon, authenticated;
 
 -- ============================================================================
--- 14. VIEWS — Dashboard, Caisse & Reports
+-- 15. VIEWS — Dashboard, Caisse & Reports
 -- ============================================================================
 
 -- ---- Stock -----------------------------------------------------------------
@@ -1429,13 +1972,79 @@ select p.*,
   from public.products p
  where p.has_expiration and p.expiration_date is not null;
 
+-- The value of the stock includes the content left in an opened container
 create or replace view public.v_stock_value as
-select count(*)                                        as products_count,
-       coalesce(sum(quantity), 0)                      as units_in_stock,
-       coalesce(sum(quantity * purchase_price), 0)     as stock_cost_value,
-       coalesce(sum(quantity * sale_price), 0)         as stock_sale_value,
-       coalesce(sum(quantity * (sale_price - purchase_price)), 0) as potential_margin
+select count(*)                                                             as products_count,
+       coalesce(sum(quantity), 0)                                           as units_in_stock,
+       coalesce(sum(quantity * purchase_price
+                    + case when is_divisible and capacity > 0
+                           then open_remaining / capacity * purchase_price
+                           else 0 end), 0)                                  as stock_cost_value,
+       coalesce(sum(quantity * sale_price), 0)                              as stock_sale_value,
+       coalesce(sum(quantity * (sale_price - purchase_price)), 0)           as potential_margin
   from public.products;
+
+-- ---- Retail ("vente au détail") -------------------------------------------
+-- Sealed containers, the one opened at the counter, and the total content.
+create or replace view public.v_retail_stock as
+select p.id                                             as product_id,
+       p.name                                           as product_name,
+       p.category,
+       p.unit,
+       p.capacity,
+       p.quantity                                       as containers,
+       p.open_remaining,
+       (p.quantity * p.capacity + p.open_remaining)     as total_content,
+       p.retail_step,
+       p.retail_price,
+       case when p.retail_step > 0
+            then round(p.retail_price / p.retail_step, 2) else 0 end as price_per_unit,
+       case when p.capacity > 0
+            then round(p.purchase_price / p.capacity, 2) else 0 end  as cost_per_unit
+  from public.products p
+ where p.is_divisible and p.capacity > 0;
+
+-- ---- Production (Production screen, Caisse & Reports) ----------------------
+create or replace view public.v_production_stats as
+select pr.id,
+       pr.reference,
+       pr.sheet_name,
+       pr.output_name,
+       pr.date,
+       pr.status,
+       pr.output_quantity,
+       pr.sold_quantity,
+       greatest(0, pr.output_quantity - pr.sold_quantity)            as remaining_quantity,
+       pr.total_cost,
+       pr.total_revenue,
+       pr.gain                                                       as expected_gain,
+       case when pr.output_quantity > 0
+            then round(pr.total_cost / pr.output_quantity, 2) else 0 end as unit_cost,
+       round(pr.sold_quantity * pr.output_unit_price, 2)             as sold_revenue,
+       round(
+         pr.sold_quantity * pr.output_unit_price
+         - pr.sold_quantity * case when pr.output_quantity > 0
+                                   then pr.total_cost / pr.output_quantity else 0 end, 2
+       )                                                             as realised_gain,
+       round(
+         greatest(0, pr.output_quantity - pr.sold_quantity)
+         * case when pr.output_quantity > 0
+                then pr.total_cost / pr.output_quantity else 0 end, 2
+       )                                                             as remaining_value
+  from public.productions pr;
+
+-- Raw material eaten by the batches still active
+create or replace view public.v_production_components as
+select l.product_id,
+       l.product_name,
+       l.by_content,
+       l.unit,
+       sum(l.quantity)   as quantity_used,
+       sum(l.line_total) as cost_used
+  from public.production_lines l
+  join public.productions pr on pr.id = l.production_id
+ where pr.status = 'active'
+ group by l.product_id, l.product_name, l.by_content, l.unit;
 
 -- ---- Sales analysis (Reports → "Analyse des ventes") -----------------------
 create or replace view public.v_product_sales_stats as
@@ -1691,13 +2300,18 @@ as $$
 $$;
 
 -- ============================================================================
--- 15. ROW LEVEL SECURITY
+-- 16. ROW LEVEL SECURITY
 -- ============================================================================
 
 alter table public.profiles            enable row level security;
 alter table public.brands              enable row level security;
 alter table public.categories          enable row level security;
+alter table public.measure_units       enable row level security;
 alter table public.worker_roles        enable row level security;
+alter table public.tech_sheets         enable row level security;
+alter table public.tech_sheet_lines    enable row level security;
+alter table public.productions         enable row level security;
+alter table public.production_lines    enable row level security;
 alter table public.store_settings      enable row level security;
 alter table public.products            enable row level security;
 alter table public.suppliers           enable row level security;
@@ -1723,9 +2337,10 @@ do $$
 declare
   tbl text;
   shared_tables text[] := array[
-    'brands', 'categories', 'worker_roles', 'products', 'suppliers', 'clients',
+    'brands', 'categories', 'measure_units', 'worker_roles', 'products', 'suppliers', 'clients',
     'purchases', 'purchase_lines', 'purchase_payments',
     'sales', 'sale_lines', 'sale_payments',
+    'tech_sheets', 'tech_sheet_lines', 'productions', 'production_lines',
     'workers', 'worker_advances', 'worker_absences', 'worker_payments',
     'expenses', 'caisse_transactions', 'store_settings'
   ];
@@ -1799,6 +2414,14 @@ grant execute on function public.delete_purchase(text)                          
 grant execute on function public.create_sale(jsonb)                              to authenticated;
 grant execute on function public.add_sale_payment(text, numeric, timestamptz, text) to authenticated;
 grant execute on function public.delete_sale(text)                               to authenticated;
+grant execute on function public.shift_product_content(text, numeric)            to authenticated;
+grant execute on function public.apply_production_lines(text, integer)           to authenticated;
+grant execute on function public.write_production_lines(text, jsonb)             to authenticated;
+grant execute on function public.save_tech_sheet(jsonb)                          to authenticated;
+grant execute on function public.create_production(jsonb)                        to authenticated;
+grant execute on function public.update_production(jsonb)                        to authenticated;
+grant execute on function public.recover_production(text)                        to authenticated;
+grant execute on function public.delete_production(text)                         to authenticated;
 grant execute on function public.add_worker_advance(text, numeric, text, timestamptz) to authenticated;
 grant execute on function public.add_worker_absence(text, numeric, text, timestamptz) to authenticated;
 grant execute on function public.pay_worker_salary(text, text, numeric, numeric, numeric, numeric, timestamptz, text) to authenticated;
@@ -1820,9 +2443,10 @@ do $$
 declare v text;
 begin
   foreach v in array array[
-    'v_stock_alerts', 'v_expiring_products', 'v_stock_value',
+    'v_stock_alerts', 'v_expiring_products', 'v_stock_value', 'v_retail_stock',
     'v_product_sales_stats', 'v_product_purchase_stats',
     'v_category_stats', 'v_brand_stats',
+    'v_production_stats', 'v_production_components',
     'v_caisse_ledger', 'v_caisse_balance', 'v_caisse_daily',
     'v_client_debts', 'v_supplier_debts',
     'v_monthly_revenue', 'v_dashboard_kpis'
@@ -1833,7 +2457,7 @@ begin
 end $$;
 
 -- ============================================================================
--- 16. REALTIME — the POS listens to the phone scans live
+-- 17. REALTIME — the POS listens to the phone scans live
 -- ============================================================================
 
 -- Every screen reads from Postgres only, so the app must be told when another
@@ -1843,10 +2467,11 @@ do $$
 declare
   tbl text;
   live_tables text[] := array[
-    'scan_events', 'products', 'brands', 'categories',
+    'scan_events', 'products', 'brands', 'categories', 'measure_units',
     'clients', 'suppliers',
     'purchases', 'purchase_lines', 'purchase_payments',
     'sales', 'sale_lines', 'sale_payments',
+    'tech_sheets', 'tech_sheet_lines', 'productions', 'production_lines',
     'workers', 'worker_advances', 'worker_absences', 'worker_payments', 'worker_roles',
     'expenses', 'caisse_transactions', 'store_settings'
   ];

@@ -1,6 +1,19 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Pencil, Trash2, Eye, SprayCan, Barcode as BarcodeIcon, CalendarClock, CalendarX } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Eye,
+  SprayCan,
+  Barcode as BarcodeIcon,
+  CalendarClock,
+  CalendarX,
+  Beaker,
+  Boxes,
+  AlertTriangle,
+  Coins,
+} from 'lucide-react'
 import { format } from 'date-fns'
 import { PageHeader, SearchInput, EmptyState, ViewToggle, ProgressBar } from '@/components/ui/Misc'
 import { Button } from '@/components/ui/Button'
@@ -12,7 +25,14 @@ import { ProductModal } from './ProductModal'
 import { Barcode } from '@/components/shared/BarcodeGenerator'
 import { useProductStore } from '@/store/useProductStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { formatMoney, expiryInfo } from '@/utils/helpers'
+import { formatMoney, expiryInfo, round2 } from '@/utils/helpers'
+import {
+  isDivisible,
+  totalContent,
+  contentUnitPrice,
+  contentUnitCost,
+  capacityOf,
+} from '@/utils/retail'
 import { cardVariants, staggerContainer } from '@/utils/animations'
 import type { Product } from '@/types'
 import toast from 'react-hot-toast'
@@ -52,6 +72,87 @@ const ExpiryPill = ({ product, full = false }: { product: Product; full?: boolea
   )
 }
 
+/**
+ * Retail stock read-out: how many sealed containers are on the shelf and how
+ * much is left in the one currently opened at the counter.
+ */
+const RetailStock = ({ product, compact = false }: { product: Product; compact?: boolean }) => {
+  const { t } = useTranslation()
+  if (!isDivisible(product)) return null
+  const unit = product.unit ?? ''
+  const open = round2(product.openRemaining ?? 0)
+  if (compact)
+    return (
+      <span className="text-[11px] text-wood-medium">
+        {product.quantity} × {capacityOf(product)} {unit}
+        {open > 0 && <span className="text-wood-warm"> + {open} {unit}</span>}
+      </span>
+    )
+  return (
+    <div className="mt-3 rounded-xl border border-fuchsia-200/60 bg-fuchsia-50/50 p-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-wood-warm">
+        <Beaker size={13} />
+        {t('retailSelling')}
+      </div>
+      <div className="mt-1.5 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-[10px] text-wood-medium">{t('containers')}</p>
+          <p className="text-mono text-sm font-bold text-wood-dark">{product.quantity}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-wood-medium">{t('openContainer')}</p>
+          <p className="text-mono text-sm font-bold text-wood-warm">
+            {open} <span className="text-[10px] font-normal">{unit}</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-wood-medium">{t('totalContent')}</p>
+          <p className="text-mono text-sm font-bold text-sage">
+            {totalContent(product)} <span className="text-[10px] font-normal">{unit}</span>
+          </p>
+        </div>
+      </div>
+      {(product.retailStep ?? 0) > 0 && (
+        <p className="mt-1.5 text-center text-[10px] text-wood-medium">
+          {product.retailStep} {unit} = {formatMoney(product.retailPrice ?? 0)} ·{' '}
+          {formatMoney(contentUnitPrice(product))}/{unit}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Small KPI tile of the stock summary strip. */
+const StockStat = ({
+  icon,
+  label,
+  value,
+  accent,
+  index,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  accent: string
+  index: number
+}) => (
+  <motion.div
+    variants={cardVariants}
+    custom={index}
+    initial="initial"
+    animate="animate"
+    className="card-wood flex items-center gap-3 rounded-2xl p-3.5"
+  >
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood ${accent}`}>
+      {icon}
+    </div>
+    <div className="min-w-0">
+      <p className="truncate text-[11px] text-wood-medium">{label}</p>
+      <p className="text-mono truncate text-lg font-bold text-wood-dark">{value}</p>
+    </div>
+  </motion.div>
+)
+
 export const StockPage = () => {
   const { t } = useTranslation()
   const { products, brands, categories, deleteProduct } = useProductStore()
@@ -59,6 +160,7 @@ export const StockPage = () => {
   const [search, setSearch] = useState('')
   const [brandFilter, setBrandFilter] = useState('')
   const [catFilter, setCatFilter] = useState('')
+  const [kindFilter, setKindFilter] = useState<'all' | 'retail' | 'whole' | 'low'>('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [viewing, setViewing] = useState<Product | null>(null)
@@ -71,10 +173,31 @@ export const StockPage = () => {
         const matchSearch = !q || p.name.toLowerCase().includes(q) || p.barcode.includes(q)
         const matchBrand = !brandFilter || p.brand === brandFilter
         const matchCat = !catFilter || p.category === catFilter
-        return matchSearch && matchBrand && matchCat
+        const matchKind =
+          kindFilter === 'all' ||
+          (kindFilter === 'retail' && isDivisible(p)) ||
+          (kindFilter === 'whole' && !isDivisible(p)) ||
+          (kindFilter === 'low' && p.quantity <= p.minQuantity)
+        return matchSearch && matchBrand && matchCat && matchKind
       }),
-    [products, search, brandFilter, catFilter],
+    [products, search, brandFilter, catFilter, kindFilter],
   )
+
+  // Summary strip — the shape of the stock at a glance.
+  const summary = useMemo(() => {
+    const retail = products.filter(isDivisible)
+    const stockValue = products.reduce((s, p) => {
+      const open = isDivisible(p) ? (p.openRemaining ?? 0) * contentUnitCost(p) : 0
+      return s + p.quantity * p.purchasePrice + open
+    }, 0)
+    return {
+      count: products.length,
+      units: products.reduce((s, p) => s + p.quantity, 0),
+      retailCount: retail.length,
+      lowCount: products.filter((p) => p.quantity <= p.minQuantity).length,
+      stockValue: round2(stockValue),
+    }
+  }, [products])
 
   const stockBadge = (p: Product) => {
     if (p.quantity === 0) return <Badge tone="unpaid">{t('outOfStock')}</Badge>
@@ -104,22 +227,51 @@ export const StockPage = () => {
         }
       />
 
+      {/* Summary strip */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StockStat index={0} icon={<SprayCan size={18} />} label={t('products')} value={`${summary.count}`} accent="from-fuchsia-500 to-purple-600" />
+        <StockStat index={1} icon={<Boxes size={18} />} label={t('productsInStock')} value={`${summary.units}`} accent="from-wood-warm to-gold" />
+        <StockStat index={2} icon={<Beaker size={18} />} label={t('retailProducts')} value={`${summary.retailCount}`} accent="from-pink-500 to-fuchsia-600" />
+        <StockStat index={3} icon={<AlertTriangle size={18} />} label={t('stockAlerts')} value={`${summary.lowCount}`} accent="from-terracotta to-red-600" />
+        <StockStat index={4} icon={<Coins size={18} />} label={t('stockValue')} value={formatMoney(summary.stockValue)} accent="from-sage to-green-600" />
+      </div>
+
       {/* Filters */}
-      <div className="card-wood mb-5 flex flex-wrap items-center gap-3 rounded-2xl p-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} className="min-w-[220px] flex-1" />
-        <Select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="max-w-[200px]">
-          <option value="">{t('all')} — {t('brand')}</option>
-          {brands.map((b) => (
-            <option key={b} value={b}>{b}</option>
+      <div className="card-wood mb-5 space-y-3 rounded-2xl p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} className="min-w-[220px] flex-1" />
+          <Select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="max-w-[200px]">
+            <option value="">{t('all')} — {t('brand')}</option>
+            {brands.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </Select>
+          <Select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="max-w-[200px]">
+            <option value="">{t('all')} — {t('category')}</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </Select>
+          <ViewToggle view={view} onChange={setView} labels={{ cards: t('cardView'), table: t('tableView') }} />
+        </div>
+        <div className="inline-flex flex-wrap rounded-xl border border-wood-light/40 bg-white/70 p-1">
+          {([
+            { k: 'all', l: t('all') },
+            { k: 'retail', l: t('retailProducts') },
+            { k: 'whole', l: t('sealedUnits') },
+            { k: 'low', l: t('stockAlerts') },
+          ] as const).map((o) => (
+            <button
+              key={o.k}
+              onClick={() => setKindFilter(o.k)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                kindFilter === o.k ? 'bg-wood-btn text-white shadow-wood' : 'text-wood-medium hover:bg-wood-cream'
+              }`}
+            >
+              {o.l}
+            </button>
           ))}
-        </Select>
-        <Select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="max-w-[200px]">
-          <option value="">{t('all')} — {t('category')}</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </Select>
-        <ViewToggle view={view} onChange={setView} labels={{ cards: t('cardView'), table: t('tableView') }} />
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -141,7 +293,15 @@ export const StockPage = () => {
                     <h3 className="truncate font-bold text-wood-dark">{p.name}</h3>
                     <p className="text-xs text-wood-medium">{p.brand} · {p.category}</p>
                   </div>
-                  {stockBadge(p)}
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {stockBadge(p)}
+                    {isDivisible(p) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-300/60 bg-fuchsia-100/60 px-2 py-0.5 text-[10px] font-semibold text-wood-warm">
+                        <Beaker size={11} />
+                        {t('retailSelling')}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-2 flex items-center gap-1.5 text-[11px] text-wood-medium/70">
@@ -173,6 +333,8 @@ export const StockPage = () => {
                   </div>
                   <ProgressBar value={p.quantity} max={Math.max(p.minQuantity * 3, p.quantity)} danger={p.quantity <= p.minQuantity} />
                 </div>
+
+                <RetailStock product={p} />
 
                 <div className="mt-4 flex gap-2 border-t border-wood-light/20 pt-3">
                   <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewing(p)}>
@@ -213,12 +375,24 @@ export const StockPage = () => {
                     animate={{ opacity: 1, transition: { delay: i * 0.03 } }}
                     className="border-b border-wood-light/15 hover:bg-wood-cream/30"
                   >
-                    <td className="px-4 py-2.5 font-medium text-wood-dark">{p.name}</td>
+                    <td className="px-4 py-2.5 font-medium text-wood-dark">
+                      <span className="flex items-center gap-1.5">
+                        {p.name}
+                        {isDivisible(p) && <Beaker size={13} className="shrink-0 text-wood-warm" />}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 text-wood-medium">{p.brand}</td>
                     <td className="px-4 py-2.5 text-wood-medium">{p.category}</td>
                     <td className="text-mono px-4 py-2.5 text-end">{formatMoney(p.purchasePrice)}</td>
-                    <td className="text-mono px-4 py-2.5 text-end text-sage">{formatMoney(p.salePrice)}</td>
-                    <td className="text-mono px-4 py-2.5 text-center font-bold">{p.quantity}</td>
+                    <td className="text-mono px-4 py-2.5 text-end text-sage">
+                      {isDivisible(p) && (p.retailStep ?? 0) > 0
+                        ? `${formatMoney(p.retailPrice ?? 0)} / ${p.retailStep} ${p.unit ?? ''}`
+                        : formatMoney(p.salePrice)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <p className="text-mono font-bold">{p.quantity}</p>
+                      <RetailStock product={p} compact />
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex flex-col items-center gap-1">
                         {stockBadge(p)}
@@ -256,6 +430,29 @@ export const StockPage = () => {
               <div className="rounded-xl bg-wood-cream/40 p-3"><p className="text-xs text-wood-medium">{t('mainQuantity')}</p><p className="text-mono font-bold">{viewing.quantity}</p></div>
               <div className="rounded-xl bg-wood-cream/40 p-3"><p className="text-xs text-wood-medium">{t('minQuantity')}</p><p className="text-mono font-bold">{viewing.minQuantity}</p></div>
             </div>
+            {isDivisible(viewing) && (
+              <div className="space-y-3">
+                <RetailStock product={viewing} />
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl bg-wood-cream/40 p-3">
+                    <p className="text-xs text-wood-medium">{t('portionSize')}</p>
+                    <p className="text-mono font-bold">{viewing.retailStep} {viewing.unit}</p>
+                  </div>
+                  <div className="rounded-xl bg-sage/10 p-3">
+                    <p className="text-xs text-wood-medium">{t('portionPrice')}</p>
+                    <p className="text-mono font-bold text-sage">{formatMoney(viewing.retailPrice ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-wood-cream/40 p-3">
+                    <p className="text-xs text-wood-medium">{t('costPerUnit')} {viewing.unit}</p>
+                    <p className="text-mono font-bold">{formatMoney(contentUnitCost(viewing))}</p>
+                  </div>
+                  <div className="rounded-xl bg-sage/10 p-3">
+                    <p className="text-xs text-wood-medium">{t('pricePerUnit')} {viewing.unit}</p>
+                    <p className="text-mono font-bold text-sage">{formatMoney(contentUnitPrice(viewing))}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             {viewing.hasExpiration && viewing.expirationDate && (
               <div className="flex items-center justify-between rounded-xl bg-wood-cream/40 p-3">
                 <span className="flex items-center gap-1.5 text-xs text-wood-medium"><CalendarClock size={14} />{t('expirationDate')}</span>

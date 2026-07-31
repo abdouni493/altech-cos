@@ -9,6 +9,7 @@ import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
 import { StockPage } from '@/pages/Stock/StockPage'
 import { PurchasePage } from '@/pages/Purchase/PurchasePage'
+import { ProductionPage } from '@/pages/Production/ProductionPage'
 import { POSPage } from '@/pages/POS/POSPage'
 import { SalesPage } from '@/pages/Sales/SalesPage'
 import { ClientsPage } from '@/pages/Clients/ClientsPage'
@@ -85,6 +86,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/stock" element={<StockPage />} />
                 <Route path="/purchase" element={<PurchasePage />} />
+                <Route path="/production" element={<ProductionPage />} />
                 <Route path="/pos" element={<POSPage />} />
                 <Route path="/sales" element={<SalesPage />} />
                 <Route path="/clients" element={<ClientsPage />} />

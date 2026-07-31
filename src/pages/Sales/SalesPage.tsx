@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useReactToPrint } from 'react-to-print'
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter } from 'date-fns'
 import toast from 'react-hot-toast'
-import { Eye, CreditCard, Printer, Trash2, BadgeDollarSign, Pencil, Check } from 'lucide-react'
+import { Eye, CreditCard, Printer, Trash2, BadgeDollarSign, Pencil, Check, Beaker, FlaskConical } from 'lucide-react'
 import { PageHeader, SearchInput, EmptyState, ViewToggle } from '@/components/ui/Misc'
 import { Button } from '@/components/ui/Button'
 import { Badge, statusTone } from '@/components/ui/Badge'
@@ -184,7 +184,18 @@ export const SalesPage = () => {
               <thead><tr className="border-b border-wood-light/30 text-xs uppercase text-wood-medium"><th className="py-2 text-start">{t('productName')}</th><th className="py-2 text-center">{t('quantity')}</th><th className="py-2 text-end">{t('unitPrice')}</th><th className="py-2 text-end">{t('subtotal')}</th></tr></thead>
               <tbody>
                 {viewing.lines.map((l, i) => (
-                  <tr key={i} className="border-b border-wood-cream"><td className="py-2 font-medium">{l.productName}</td><td className="py-2 text-center">{l.quantity}</td><td className="text-mono py-2 text-end">{formatMoney(l.unitPrice)}</td><td className="text-mono py-2 text-end font-semibold">{formatMoney(l.quantity * l.unitPrice)}</td></tr>
+                  <tr key={i} className="border-b border-wood-cream">
+                    <td className="py-2 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        {l.kind === 'retail' && <Beaker size={13} className="shrink-0 text-wood-warm" />}
+                        {l.kind === 'production' && <FlaskConical size={13} className="shrink-0 text-violet-500" />}
+                        {l.productName}
+                      </span>
+                    </td>
+                    <td className="py-2 text-center">{l.quantity}{l.kind === 'retail' && l.unit ? ` ${l.unit}` : ''}</td>
+                    <td className="text-mono py-2 text-end">{formatMoney(l.unitPrice)}{l.kind === 'retail' && l.unit ? ` /${l.unit}` : ''}</td>
+                    <td className="text-mono py-2 text-end font-semibold">{formatMoney(round2(l.quantity * l.unitPrice))}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>

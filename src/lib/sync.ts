@@ -4,6 +4,7 @@ import { useClientStore } from '@/store/useClientStore'
 import { useSupplierStore } from '@/store/useSupplierStore'
 import { usePurchaseStore } from '@/store/usePurchaseStore'
 import { useSalesStore } from '@/store/useSalesStore'
+import { useProductionStore } from '@/store/useProductionStore'
 import { useWorkerStore } from '@/store/useWorkerStore'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCaisseStore } from '@/store/useCaisseStore'
@@ -13,10 +14,12 @@ import type {
   Client,
   Expense,
   Product,
+  Production,
   Purchase,
   Sale,
   StoreSettings,
   Supplier,
+  TechSheet,
   Worker,
 } from '@/types'
 
@@ -39,10 +42,13 @@ export const readLocalSnapshot = (): LocalSnapshot => ({
   products: useProductStore.getState().products,
   brands: useProductStore.getState().brands,
   categories: useProductStore.getState().categories,
+  units: useProductStore.getState().units,
   clients: useClientStore.getState().clients,
   suppliers: useSupplierStore.getState().suppliers,
   purchases: usePurchaseStore.getState().purchases,
   sales: useSalesStore.getState().sales,
+  sheets: useProductionStore.getState().sheets,
+  productions: useProductionStore.getState().productions,
   workers: useWorkerStore.getState().workers,
   workerRoles: useWorkerStore.getState().roles,
   expenses: useExpenseStore.getState().expenses,
@@ -55,10 +61,13 @@ export const applySnapshot = (snapshot: {
   products: Product[]
   brands: string[]
   categories: string[]
+  units: string[]
   clients: Client[]
   suppliers: Supplier[]
   purchases: Purchase[]
   sales: Sale[]
+  sheets: TechSheet[]
+  productions: Production[]
   workers: Worker[]
   workerRoles: string[]
   expenses: Expense[]
@@ -69,11 +78,13 @@ export const applySnapshot = (snapshot: {
     products: snapshot.products,
     brands: snapshot.brands,
     categories: snapshot.categories,
+    units: snapshot.units,
   })
   useClientStore.setState({ clients: snapshot.clients })
   useSupplierStore.setState({ suppliers: snapshot.suppliers })
   usePurchaseStore.setState({ purchases: snapshot.purchases })
   useSalesStore.setState({ sales: snapshot.sales })
+  useProductionStore.setState({ sheets: snapshot.sheets, productions: snapshot.productions })
   useWorkerStore.setState({ workers: snapshot.workers, roles: snapshot.workerRoles })
   useExpenseStore.setState({ expenses: snapshot.expenses })
   useCaisseStore.setState({ transactions: snapshot.caisse })
@@ -86,10 +97,13 @@ export const clearShopState = () => {
     products: [],
     brands: [],
     categories: [],
+    units: [],
     clients: [],
     suppliers: [],
     purchases: [],
     sales: [],
+    sheets: [],
+    productions: [],
     workers: [],
     workerRoles: [],
     expenses: [],
@@ -150,10 +164,13 @@ export const readLegacyBrowserData = (): LocalSnapshot | null => {
     products: products?.products ?? [],
     brands: products?.brands ?? [],
     categories: products?.categories ?? [],
+    units: products?.units ?? [],
     clients: clients?.clients ?? [],
     suppliers: suppliers?.suppliers ?? [],
     purchases: purchases?.purchases ?? [],
     sales: sales?.sales ?? [],
+    sheets: [],
+    productions: [],
     workers: workers?.workers ?? [],
     workerRoles: workers?.roles ?? [],
     expenses: expenses?.expenses ?? [],
@@ -230,10 +247,13 @@ export const restoreSnapshot = async (snapshot: Partial<LocalSnapshot>): Promise
     products: snapshot.products ?? [],
     brands: snapshot.brands ?? [],
     categories: snapshot.categories ?? [],
+    units: snapshot.units ?? [],
     clients: snapshot.clients ?? [],
     suppliers: snapshot.suppliers ?? [],
     purchases: snapshot.purchases ?? [],
     sales: snapshot.sales ?? [],
+    sheets: snapshot.sheets ?? [],
+    productions: snapshot.productions ?? [],
     workers: snapshot.workers ?? [],
     workerRoles: snapshot.workerRoles ?? [],
     expenses: snapshot.expenses ?? [],

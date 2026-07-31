@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
-import { Search, Plus, Trash2, Check, PackagePlus, UserPlus, ShoppingCart, CalendarClock } from 'lucide-react'
+import { Search, Plus, Trash2, Check, PackagePlus, UserPlus, ShoppingCart, CalendarClock, Beaker } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -12,6 +12,9 @@ import { usePurchaseStore } from '@/store/usePurchaseStore'
 import { useTranslation } from '@/i18n/useTranslation'
 import { formatMoney, round2 } from '@/utils/helpers'
 import type { Product, Purchase, PurchaseLine, Supplier } from '@/types'
+
+/** Units offered when a purchase line turns a product into a retail article. */
+const DEFAULT_UNITS = ['ml', 'L', 'g', 'kg', 'cm', 'm', 'pcs']
 
 interface EditableLine extends PurchaseLine {
   _key: string
@@ -27,8 +30,14 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
   const { t } = useTranslation()
   const products = useProductStore((s) => s.products)
   const receiveStock = useProductStore((s) => s.receiveStock)
+  const units = useProductStore((s) => s.units)
+  const addUnit = useProductStore((s) => s.addUnit)
   const { suppliers, addSupplier } = useSupplierStore()
   const { addPurchase, updatePurchase } = usePurchaseStore()
+
+  const unitOptions = [...units, ...DEFAULT_UNITS.filter((u) => !units.includes(u))]
+  const [newUnitFor, setNewUnitFor] = useState<string | null>(null)
+  const [newUnitName, setNewUnitName] = useState('')
 
   const [lines, setLines] = useState<EditableLine[]>([])
   const [productQuery, setProductQuery] = useState('')
@@ -99,6 +108,13 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
         minQuantity: p.minQuantity,
         hasExpiration: p.hasExpiration ?? false,
         expirationDate: (p.expirationDate ?? '').slice(0, 10),
+        // Retail settings travel with the line so the buyer can adjust the
+        // portion and its price for this delivery.
+        isDivisible: p.isDivisible ?? false,
+        unit: p.unit || unitOptions[0] || 'ml',
+        capacity: p.capacity ?? 0,
+        retailStep: p.retailStep ?? 0,
+        retailPrice: p.retailPrice ?? 0,
       },
     ])
     setProductQuery('')
@@ -158,6 +174,11 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
           minQuantity: l.minQuantity,
           hasExpiration: l.hasExpiration,
           expirationDate: l.hasExpiration ? l.expirationDate : undefined,
+          isDivisible: l.isDivisible,
+          unit: l.unit,
+          capacity: l.capacity,
+          retailStep: l.retailStep,
+          retailPrice: l.retailPrice,
         }),
       )
       toast.success(t('saved'))
@@ -280,6 +301,143 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
                             className="input-wood py-1.5"
                           />
                         </label>
+                      )}
+                    </div>
+
+                    {/* Retail selling — a 100 ml bottle sold by 10 ml portions */}
+                    <div className="mt-2 rounded-lg border border-fuchsia-200/60 bg-fuchsia-50/40 p-2.5">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <span className="relative inline-flex">
+                          <input
+                            type="checkbox"
+                            className="peer sr-only"
+                            checked={!!l.isDivisible}
+                            onChange={(e) =>
+                              updateLine(l._key, {
+                                isDivisible: e.target.checked,
+                                unit: l.unit || unitOptions[0] || 'ml',
+                              })
+                            }
+                          />
+                          <span className="h-5 w-9 rounded-full bg-wood-light/40 transition peer-checked:bg-wood-warm" />
+                          <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4" />
+                        </span>
+                        <span className="flex items-center gap-1 text-xs font-semibold text-wood-dark">
+                          <Beaker size={14} className="text-wood-warm" />
+                          {t('enableRetail')}
+                        </span>
+                      </label>
+
+                      {l.isDivisible && (
+                        <>
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <label className="text-xs text-wood-medium">
+                              {t('totalCapacity')}
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={l.capacity ?? 0}
+                                onChange={(e) => updateLine(l._key, { capacity: Number(e.target.value) })}
+                                className="input-wood mt-0.5 py-1.5"
+                              />
+                            </label>
+                            <label className="text-xs text-wood-medium">
+                              {t('measureUnit')}
+                              <div className="mt-0.5 flex gap-1">
+                                <select
+                                  value={l.unit ?? ''}
+                                  onChange={(e) => updateLine(l._key, { unit: e.target.value })}
+                                  className="input-wood cursor-pointer py-1.5"
+                                >
+                                  {[...new Set([...(l.unit ? [l.unit] : []), ...unitOptions])].map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setNewUnitFor(newUnitFor === l._key ? null : l._key)}
+                                >
+                                  <Plus size={14} />
+                                </Button>
+                              </div>
+                            </label>
+                            <label className="text-xs text-wood-medium">
+                              {`${t('portionSize')} (${l.unit ?? ''})`}
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={l.retailStep ?? 0}
+                                onChange={(e) => updateLine(l._key, { retailStep: Number(e.target.value) })}
+                                className="input-wood mt-0.5 py-1.5"
+                              />
+                            </label>
+                            <label className="text-xs text-wood-medium">
+                              {`${t('portionPrice')} (DA)`}
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={l.retailPrice ?? 0}
+                                onChange={(e) => updateLine(l._key, { retailPrice: Number(e.target.value) })}
+                                className="input-wood mt-0.5 py-1.5"
+                              />
+                            </label>
+                          </div>
+
+                          {newUnitFor === l._key && (
+                            <div className="mt-2 flex gap-2">
+                              <input
+                                value={newUnitName}
+                                onChange={(e) => setNewUnitName(e.target.value)}
+                                placeholder={t('newUnit')}
+                                className="input-wood py-1.5"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => {
+                                  const name = newUnitName.trim()
+                                  if (!name) return
+                                  addUnit(name)
+                                  updateLine(l._key, { unit: name })
+                                  setNewUnitName('')
+                                  setNewUnitFor(null)
+                                }}
+                              >
+                                <Check size={14} />
+                              </Button>
+                            </div>
+                          )}
+
+                          <p className="mt-2 text-[11px] text-wood-medium">
+                            {(l.retailStep ?? 0) > 0 && (l.retailPrice ?? 0) > 0 ? (
+                              <>
+                                {l.retailStep} {l.unit} = {formatMoney(l.retailPrice ?? 0)} ·{' '}
+                                <b className="text-mono text-wood-dark">
+                                  {formatMoney(round2((l.retailPrice ?? 0) / (l.retailStep || 1)))}
+                                </b>{' '}
+                                / {l.unit}
+                                {(l.capacity ?? 0) > 0 && (
+                                  <>
+                                    {' · '}
+                                    {l.quantity} × {l.capacity} {l.unit} ={' '}
+                                    <b className="text-mono text-wood-dark">
+                                      {round2(l.quantity * (l.capacity ?? 0))} {l.unit}
+                                    </b>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              t('retailHint')
+                            )}
+                          </p>
+                        </>
                       )}
                     </div>
 

@@ -5,12 +5,15 @@ import type {
   Expense,
   Payment,
   Product,
+  Production,
   Purchase,
   PurchaseLine,
+  RecipeLine,
   Sale,
   SaleLine,
   StoreSettings,
   Supplier,
+  TechSheet,
   Worker,
   WorkerAbsence,
   WorkerAdvance,
@@ -128,6 +131,12 @@ export const productToRow = (p: Product): Row => ({
   min_quantity: p.minQuantity ?? 0,
   has_expiration: !!p.hasExpiration,
   expiration_date: p.hasExpiration ? day(p.expirationDate) : null,
+  is_divisible: !!p.isDivisible,
+  unit: p.unit ?? '',
+  capacity: p.capacity ?? 0,
+  retail_step: p.retailStep ?? 0,
+  retail_price: p.retailPrice ?? 0,
+  open_remaining: p.openRemaining ?? 0,
   created_at: iso(p.createdAt) ?? new Date().toISOString(),
 })
 
@@ -144,6 +153,12 @@ export const rowToProduct = (r: Row): Product => ({
   minQuantity: Number(r.min_quantity ?? 0),
   hasExpiration: !!r.has_expiration,
   expirationDate: r.expiration_date ?? undefined,
+  isDivisible: !!r.is_divisible,
+  unit: r.unit ?? '',
+  capacity: Number(r.capacity ?? 0),
+  retailStep: Number(r.retail_step ?? 0),
+  retailPrice: Number(r.retail_price ?? 0),
+  openRemaining: Number(r.open_remaining ?? 0),
   createdAt: r.created_at ?? new Date().toISOString(),
 })
 
@@ -220,6 +235,11 @@ const purchaseLineToRow = (purchaseId: string, l: PurchaseLine): Row => ({
   min_quantity: l.minQuantity ?? 0,
   has_expiration: !!l.hasExpiration,
   expiration_date: l.hasExpiration ? day(l.expirationDate) : null,
+  is_divisible: !!l.isDivisible,
+  unit: l.unit ?? '',
+  capacity: l.capacity ?? 0,
+  retail_step: l.retailStep ?? 0,
+  retail_price: l.retailPrice ?? 0,
 })
 
 const rowToPurchase = (r: Row): Purchase => ({
@@ -242,6 +262,11 @@ const rowToPurchase = (r: Row): Purchase => ({
       minQuantity: Number(l.min_quantity ?? 0),
       hasExpiration: !!l.has_expiration,
       expirationDate: l.expiration_date ?? undefined,
+      isDivisible: !!l.is_divisible,
+      unit: l.unit ?? undefined,
+      capacity: Number(l.capacity ?? 0),
+      retailStep: Number(l.retail_step ?? 0),
+      retailPrice: Number(l.retail_price ?? 0),
     }),
   ),
   payments: (r.purchase_payments ?? []).map(
@@ -272,6 +297,10 @@ const rowToSale = (r: Row): Sale => ({
       barcode: l.barcode ?? '',
       quantity: Number(l.quantity ?? 0),
       unitPrice: Number(l.unit_price ?? 0),
+      kind: l.kind ?? 'product',
+      unit: l.unit ?? undefined,
+      unitCost: Number(l.cost_price ?? 0),
+      productionId: l.production_id ?? undefined,
     }),
   ),
   payments: (r.sale_payments ?? []).map(
@@ -282,6 +311,77 @@ const rowToSale = (r: Row): Sale => ({
       note: p.note ?? undefined,
     }),
   ),
+})
+
+// -- Production --------------------------------------------------------------
+
+const recipeLineToRow = (l: RecipeLine, index: number): Row => ({
+  position: index,
+  product_id: l.productId || null,
+  product_name: l.productName ?? '',
+  quantity: l.quantity ?? 0,
+  unit_cost: l.unitCost ?? 0,
+  by_content: !!l.byContent,
+  unit: l.unit ?? '',
+})
+
+const rowToRecipeLine = (l: Row): RecipeLine => ({
+  productId: l.product_id ?? '',
+  productName: l.product_name ?? '',
+  quantity: Number(l.quantity ?? 0),
+  unitCost: Number(l.unit_cost ?? 0),
+  byContent: !!l.by_content,
+  unit: l.unit || undefined,
+})
+
+const sortLines = (rows: Row[]): Row[] =>
+  [...rows].sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+
+const rowToTechSheet = (r: Row): TechSheet => ({
+  id: r.id,
+  name: r.name ?? '',
+  description: r.description ?? '',
+  outputName: r.output_name ?? '',
+  outputQuantity: Number(r.output_quantity ?? 0),
+  outputUnitPrice: Number(r.output_unit_price ?? 0),
+  lines: sortLines(r.tech_sheet_lines ?? []).map(rowToRecipeLine),
+  createdAt: r.created_at ?? new Date().toISOString(),
+})
+
+const rowToProduction = (r: Row): Production => ({
+  id: r.id,
+  reference: r.reference ?? '',
+  sheetId: r.sheet_id ?? null,
+  sheetName: r.sheet_name ?? '',
+  outputName: r.output_name ?? '',
+  outputQuantity: Number(r.output_quantity ?? 0),
+  outputUnitPrice: Number(r.output_unit_price ?? 0),
+  totalCost: Number(r.total_cost ?? 0),
+  totalRevenue: Number(r.total_revenue ?? 0),
+  gain: Number(r.gain ?? 0),
+  soldQuantity: Number(r.sold_quantity ?? 0),
+  status: r.status === 'recovered' ? 'recovered' : 'active',
+  date: r.date ?? new Date().toISOString(),
+  createdAt: r.created_at ?? new Date().toISOString(),
+  lines: sortLines(r.production_lines ?? []).map(rowToRecipeLine),
+})
+
+/** JSON sent to create_production() / update_production(). */
+const productionPayload = (p: Production): Row => ({
+  id: p.id,
+  reference: p.reference,
+  sheetId: p.sheetId,
+  sheetName: p.sheetName,
+  outputName: p.outputName,
+  outputQuantity: p.outputQuantity,
+  outputUnitPrice: p.outputUnitPrice,
+  totalCost: p.totalCost,
+  totalRevenue: p.totalRevenue,
+  gain: p.gain,
+  soldQuantity: p.soldQuantity,
+  status: p.status,
+  date: iso(p.date),
+  lines: p.lines,
 })
 
 /** Worker → row. The password never leaves the browser: it only feeds auth.users. */
@@ -403,6 +503,10 @@ export const remote = {
               minQuantity: 'min_quantity',
               hasExpiration: 'has_expiration',
               expirationDate: 'expiration_date',
+              isDivisible: 'is_divisible',
+              retailStep: 'retail_step',
+              retailPrice: 'retail_price',
+              openRemaining: 'open_remaining',
               createdAt: 'created_at',
             } as Record<string, string>)[k] ?? k,
           ),
@@ -416,6 +520,56 @@ export const remote = {
     remove: (id: string) => push('products.remove', () => supabase.from('products').delete().eq('id', id)),
     addBrand: (name: string) => push('brands.add', () => supabase.from('brands').upsert({ name })),
     addCategory: (name: string) => push('categories.add', () => supabase.from('categories').upsert({ name })),
+    addUnit: (name: string) => push('units.add', () => supabase.from('measure_units').upsert({ name })),
+  },
+
+  // -- Production -----------------------------------------------------------
+  techSheets: {
+    /** "Enregistrer" on a fiche technique — header + recipe, no stock movement. */
+    save: (s: TechSheet) =>
+      push('techSheets.save', async () => {
+        const { error } = await supabase.rpc('save_tech_sheet', {
+          payload: {
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            outputName: s.outputName,
+            outputQuantity: s.outputQuantity,
+            outputUnitPrice: s.outputUnitPrice,
+            createdAt: iso(s.createdAt),
+            lines: s.lines,
+          },
+        })
+        return { error }
+      }),
+    remove: (id: string) =>
+      push('techSheets.remove', () => supabase.from('tech_sheets').delete().eq('id', id)),
+  },
+  productions: {
+    /** "Lancer la production" → atomic RPC (batch + lines + stock deduction). */
+    create: (p: Production) =>
+      push('productions.create', async () => {
+        const { error } = await supabase.rpc('create_production', { payload: productionPayload(p) })
+        return { error }
+      }),
+    /** Edit → the RPC restores the previous recipe then applies the new one. */
+    update: (p: Production) =>
+      push('productions.update', async () => {
+        const { error } = await supabase.rpc('update_production', { payload: productionPayload(p) })
+        return { error }
+      }),
+    /** "Récupérer" → every component goes back to the stock. */
+    recover: (id: string) =>
+      push('productions.recover', async () => {
+        const { error } = await supabase.rpc('recover_production', { p_production_id: id })
+        return { error }
+      }),
+    /** Delete → the components are returned first when the batch is still active. */
+    remove: (id: string) =>
+      push('productions.remove', async () => {
+        const { error } = await supabase.rpc('delete_production', { p_production_id: id })
+        return { error }
+      }),
   },
 
   // -- Clients / suppliers --------------------------------------------------
@@ -642,10 +796,13 @@ export interface CloudSnapshot {
   products: Product[]
   brands: string[]
   categories: string[]
+  units: string[]
   clients: Client[]
   suppliers: Supplier[]
   purchases: Purchase[]
   sales: Sale[]
+  sheets: TechSheet[]
+  productions: Production[]
   workers: Worker[]
   workerRoles: string[]
   expenses: Expense[]
@@ -658,10 +815,13 @@ export const fetchSnapshot = async (): Promise<CloudSnapshot> => {
     products,
     brands,
     categories,
+    units,
     clients,
     suppliers,
     purchases,
     sales,
+    sheets,
+    productions,
     workers,
     workerRoles,
     expenses,
@@ -671,6 +831,7 @@ export const fetchSnapshot = async (): Promise<CloudSnapshot> => {
     supabase.from('products').select('*').order('created_at', { ascending: false }),
     supabase.from('brands').select('name').order('name'),
     supabase.from('categories').select('name').order('name'),
+    supabase.from('measure_units').select('name').order('name'),
     supabase.from('clients').select('*').order('created_at', { ascending: false }),
     supabase.from('suppliers').select('*').order('created_at', { ascending: false }),
     supabase
@@ -678,6 +839,14 @@ export const fetchSnapshot = async (): Promise<CloudSnapshot> => {
       .select('*, purchase_lines(*), purchase_payments(*)')
       .order('date', { ascending: false }),
     supabase.from('sales').select('*, sale_lines(*), sale_payments(*)').order('date', { ascending: false }),
+    supabase
+      .from('tech_sheets')
+      .select('*, tech_sheet_lines(*)')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('productions')
+      .select('*, production_lines(*)')
+      .order('date', { ascending: false }),
     supabase
       .from('workers')
       .select('*, worker_advances(*), worker_absences(*), worker_payments(*)')
@@ -700,14 +869,24 @@ export const fetchSnapshot = async (): Promise<CloudSnapshot> => {
   ].find(Boolean)
   if (firstError) throw firstError
 
+  // The production module ships after the first release: a project whose SQL
+  // migration has not been applied yet simply reports no fiches / no batches
+  // instead of blocking the whole download.
+  if (sheets.error) swallow('fetch.tech_sheets', sheets.error)
+  if (productions.error) swallow('fetch.productions', productions.error)
+  if (units.error) swallow('fetch.measure_units', units.error)
+
   return {
     products: (products.data ?? []).map(rowToProduct),
     brands: (brands.data ?? []).map((r: Row) => r.name),
     categories: (categories.data ?? []).map((r: Row) => r.name),
+    units: (units.data ?? []).map((r: Row) => r.name),
     clients: (clients.data ?? []).map(rowToClient),
     suppliers: (suppliers.data ?? []).map(rowToSupplier),
     purchases: (purchases.data ?? []).map(rowToPurchase),
     sales: (sales.data ?? []).map(rowToSale),
+    sheets: (sheets.data ?? []).map(rowToTechSheet),
+    productions: (productions.data ?? []).map(rowToProduction),
     workers: (workers.data ?? []).map(rowToWorker),
     workerRoles: (workerRoles.data ?? []).map((r: Row) => r.name),
     expenses: (expenses.data ?? []).map(rowToExpense),
@@ -724,10 +903,13 @@ export interface LocalSnapshot {
   products: Product[]
   brands: string[]
   categories: string[]
+  units: string[]
   clients: Client[]
   suppliers: Supplier[]
   purchases: Purchase[]
   sales: Sale[]
+  sheets: TechSheet[]
+  productions: Production[]
   workers: Worker[]
   workerRoles: string[]
   expenses: Expense[]
@@ -747,6 +929,10 @@ export const uploadLocalSnapshot = async (local: LocalSnapshot): Promise<void> =
   if (local.categories.length)
     await chunk('categories', () =>
       supabase.from('categories').upsert(local.categories.map((name) => ({ name }))),
+    )
+  if (local.units.length)
+    await chunk('measure_units', () =>
+      supabase.from('measure_units').upsert(local.units.map((name) => ({ name }))),
     )
   if (local.workerRoles.length)
     await chunk('worker_roles', () =>
@@ -812,6 +998,8 @@ export const uploadLocalSnapshot = async (local: LocalSnapshot): Promise<void> =
       supabase.from('caisse_transactions').upsert(local.caisse.map(caisseToRow)),
     )
 
+  await uploadProduction(local, chunk)
+
   // purchases / sales : headers, then children (the stock is already correct
   // locally, so we insert the documents as-is instead of replaying the RPCs)
   for (const p of local.purchases) {
@@ -872,7 +1060,11 @@ export const uploadLocalSnapshot = async (local: LocalSnapshot): Promise<void> =
             barcode: l.barcode ?? '',
             quantity: l.quantity,
             unit_price: l.unitPrice,
-            cost_price: local.products.find((p) => p.id === l.productId)?.purchasePrice ?? 0,
+            kind: l.kind ?? 'product',
+            unit: l.unit ?? '',
+            production_id: l.productionId ?? null,
+            cost_price:
+              l.unitCost ?? local.products.find((p) => p.id === l.productId)?.purchasePrice ?? 0,
           })),
         ),
       )
@@ -892,4 +1084,63 @@ export const uploadLocalSnapshot = async (local: LocalSnapshot): Promise<void> =
 
   if (local.settings && (local.settings.name || local.settings.phone || local.settings.logo))
     await chunk('settings', () => supabase.from('store_settings').upsert(settingsToRow(local.settings)))
+}
+
+/**
+ * Fiches techniques and manufactured batches. Uploaded BEFORE the sales, whose
+ * lines may point at a batch. The stock is already correct locally, so the rows
+ * are inserted as-is instead of replaying create_production().
+ */
+const uploadProduction = async (
+  local: LocalSnapshot,
+  chunk: (label: string, fn: () => PromiseLike<{ error: unknown }>) => Promise<void>,
+): Promise<void> => {
+  for (const s of local.sheets) {
+    await chunk('tech_sheets', () =>
+      supabase.from('tech_sheets').upsert({
+        id: s.id,
+        name: s.name,
+        description: s.description ?? '',
+        output_name: s.outputName ?? '',
+        output_quantity: s.outputQuantity ?? 0,
+        output_unit_price: s.outputUnitPrice ?? 0,
+        created_at: iso(s.createdAt),
+      }),
+    )
+    await supabase.from('tech_sheet_lines').delete().eq('sheet_id', s.id)
+    if (s.lines.length)
+      await chunk('tech_sheet_lines', () =>
+        supabase
+          .from('tech_sheet_lines')
+          .insert(s.lines.map((l, i) => ({ sheet_id: s.id, ...recipeLineToRow(l, i) }))),
+      )
+  }
+
+  for (const p of local.productions) {
+    await chunk('productions', () =>
+      supabase.from('productions').upsert({
+        id: p.id,
+        reference: p.reference,
+        sheet_id: p.sheetId,
+        sheet_name: p.sheetName ?? '',
+        output_name: p.outputName ?? '',
+        output_quantity: p.outputQuantity ?? 0,
+        output_unit_price: p.outputUnitPrice ?? 0,
+        total_cost: p.totalCost ?? 0,
+        total_revenue: p.totalRevenue ?? 0,
+        gain: p.gain ?? 0,
+        sold_quantity: p.soldQuantity ?? 0,
+        status: p.status ?? 'active',
+        date: iso(p.date),
+        created_at: iso(p.createdAt),
+      }),
+    )
+    await supabase.from('production_lines').delete().eq('production_id', p.id)
+    if (p.lines.length)
+      await chunk('production_lines', () =>
+        supabase
+          .from('production_lines')
+          .insert(p.lines.map((l, i) => ({ production_id: p.id, ...recipeLineToRow(l, i) }))),
+      )
+  }
 }

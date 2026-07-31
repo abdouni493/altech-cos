@@ -37,6 +37,8 @@ import {
   HandCoins,
   Receipt,
   Layers,
+  FlaskConical,
+  Beaker,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -61,6 +63,7 @@ import { usePurchaseStore } from '@/store/usePurchaseStore'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useWorkerStore } from '@/store/useWorkerStore'
 import { useProductStore } from '@/store/useProductStore'
+import { useProductionStore } from '@/store/useProductionStore'
 import { useTranslation } from '@/i18n/useTranslation'
 import {
   caissePeriodStats,
@@ -69,8 +72,12 @@ import {
   periodSoldProducts,
   periodPurchasedProducts,
   periodWorkerMovements,
+  periodProductions,
+  productionStats,
+  periodProductionComponents,
 } from '@/utils/calculations'
 import { formatMoney } from '@/utils/helpers'
+import { isDivisible, totalContent } from '@/utils/retail'
 import { cardVariants, fadeUp, staggerContainer } from '@/utils/animations'
 import type { CaisseTransaction, CaisseType } from '@/types'
 
@@ -122,6 +129,7 @@ export const CaissePage = () => {
   const expenses = useExpenseStore((s) => s.expenses)
   const workers = useWorkerStore((s) => s.workers)
   const products = useProductStore((s) => s.products)
+  const productions = useProductionStore((s) => s.productions)
 
   const [period, setPeriod] = useState<PeriodKey>('today')
   const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
@@ -160,8 +168,8 @@ export const CaissePage = () => {
   }, [period, customFrom, customTo, t])
 
   const wealth = useMemo(
-    () => storeWealth(transactions, sales, purchases, expenses, workers, products),
-    [transactions, sales, purchases, expenses, workers, products],
+    () => storeWealth(transactions, sales, purchases, expenses, workers, products, productions),
+    [transactions, sales, purchases, expenses, workers, products, productions],
   )
 
   const stats = useMemo(
@@ -215,6 +223,30 @@ export const CaissePage = () => {
     [expenses, start, end],
   )
   const workerMov = useMemo(() => periodWorkerMovements(workers, start, end), [workers, start, end])
+
+  // ---- Production of the period -------------------------------------------
+  const periodBatches = useMemo(() => periodProductions(productions, start, end), [productions, start, end])
+  const prodStats = useMemo(() => productionStats(periodBatches), [periodBatches])
+  const prodComponents = useMemo(
+    () => periodProductionComponents(productions, start, end),
+    [productions, start, end],
+  )
+  /** Divisible articles and what is left in the container opened at the counter. */
+  const retailRows = useMemo(
+    () =>
+      products
+        .filter(isDivisible)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          unit: p.unit ?? '',
+          containers: p.quantity,
+          open: p.openRemaining ?? 0,
+          content: totalContent(p),
+        }))
+        .sort((a, b) => b.content - a.content),
+    [products],
+  )
 
   const soldFiltered = catFilter === 'all' ? soldRows : soldRows.filter((r) => r.category === catFilter)
   const purchasedFiltered = catFilter === 'all' ? purchasedRows : purchasedRows.filter((r) => r.category === catFilter)
@@ -285,6 +317,7 @@ export const CaissePage = () => {
       suffix: 'DA',
       decimals: true,
       accent: 'from-wood-medium to-wood-light',
+      hint: <span className="inline-flex items-center gap-1 text-violet-500"><FlaskConical size={12} /> {t('productionValue')}: {formatMoney(wealth.productionValue)}</span>,
     },
     {
       icon: <Users size={22} />,
@@ -545,6 +578,104 @@ export const CaissePage = () => {
           </div>
         </Panel>
       </div>
+
+      {/* Production of the period — batches, gains and raw material eaten */}
+      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FlaskConical size={18} className="text-violet-500" />
+            <h3 className="text-display text-lg font-bold text-wood-dark">{t('productionAnalysis')}</h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge tone="gold">{t('batches')}: {prodStats.count}</Badge>
+            <Badge tone={prodStats.realisedGain >= 0 ? 'sage' : 'unpaid'}>
+              {t('realisedGain')}: {formatMoney(prodStats.realisedGain)}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { l: t('producedUnits'), v: `${prodStats.producedUnits}`, c: 'text-wood-dark' },
+            { l: t('productionCost'), v: formatMoney(prodStats.totalCost), c: 'text-terracotta' },
+            { l: t('expectedRevenue'), v: formatMoney(prodStats.expectedRevenue), c: 'text-sage' },
+            { l: t('expectedGain'), v: formatMoney(prodStats.expectedGain), c: prodStats.expectedGain >= 0 ? 'text-sage' : 'text-terracotta' },
+            { l: t('soldUnits'), v: `${prodStats.soldUnits}`, c: 'text-wood-dark' },
+            { l: t('remainingUnits'), v: `${prodStats.remainingUnits}`, c: 'text-wood-dark' },
+          ].map((x) => (
+            <div key={x.l} className="rounded-xl bg-wood-cream/40 p-3">
+              <p className="truncate text-[11px] text-wood-medium">{x.l}</p>
+              <p className={`text-mono text-base font-bold ${x.c}`}>{x.v}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-wood-medium">
+              {t('productionDetails')}
+            </p>
+            <MiniTable
+              head={[t('reference'), t('producedUnits'), t('productionCost'), t('expectedGain')]}
+              rows={periodBatches.map((p) => [
+                <span key="n">
+                  {p.outputName || p.sheetName}
+                  <span className="ms-1 text-[10px] text-wood-medium/60">· {p.reference}</span>
+                  {p.status === 'recovered' && (
+                    <span className="ms-1 text-[10px] font-semibold text-[#8a6420]">· {t('recovered')}</span>
+                  )}
+                </span>,
+                `${p.outputQuantity} (${p.soldQuantity} ${t('soldUnits').toLowerCase()})`,
+                formatMoney(p.totalCost),
+                <span key="g" className={p.gain >= 0 ? 'text-sage' : 'text-terracotta'}>
+                  {p.gain >= 0 ? '+' : ''}
+                  {formatMoney(p.gain)}
+                </span>,
+              ])}
+              empty={t('noProduction')}
+            />
+          </div>
+          <div>
+            <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-wood-medium">
+              {t('componentsConsumed')}
+            </p>
+            <MiniTable
+              head={[t('productName'), t('componentQuantity'), t('total')]}
+              rows={prodComponents.map((c) => [
+                c.name,
+                `${c.quantity} ${c.unit ?? ''}`,
+                formatMoney(c.cost),
+              ])}
+              empty={t('noData')}
+            />
+            <div className="mt-2 flex items-center justify-between rounded-xl bg-violet-50 px-3 py-2 text-sm">
+              <span className="text-wood-medium">{t('productionValue')}</span>
+              <span className="text-mono font-bold text-violet-600">{formatMoney(prodStats.remainingValue)}</span>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Retail articles — how many containers and what is left in the open one */}
+      {retailRows.length > 0 && (
+        <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Beaker size={18} className="text-wood-warm" />
+            <h3 className="text-display text-lg font-bold text-wood-dark">{t('retailProducts')}</h3>
+            <Badge tone="gold" className="ms-auto">{retailRows.length}</Badge>
+          </div>
+          <MiniTable
+            head={[t('productName'), t('containers'), t('openContainer'), t('totalContent')]}
+            rows={retailRows.map((r) => [
+              r.name,
+              r.containers,
+              `${r.open} ${r.unit}`,
+              `${r.content} ${r.unit}`,
+            ])}
+            empty={t('noData')}
+          />
+        </motion.div>
+      )}
 
       {/* Expenses + worker movements ledger */}
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">

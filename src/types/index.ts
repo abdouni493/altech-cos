@@ -26,6 +26,7 @@ export type ModuleKey =
   | 'dashboard'
   | 'stock'
   | 'purchase'
+  | 'production'
   | 'pos'
   | 'sales'
   | 'clients'
@@ -58,10 +59,26 @@ export interface Product {
   category: string
   purchasePrice: number
   salePrice: number
-  quantity: number // current quantity in stock
+  quantity: number // current quantity in stock (sealed / whole units)
   minQuantity: number // alert threshold
   hasExpiration?: boolean // whether this product tracks an expiration date
   expirationDate?: string // ISO / YYYY-MM-DD date when the product expires
+  // -- Retail ("vente au détail") ---------------------------------------------
+  // A perfume bottle holds 100 ml and is also sold by 10 ml portions: the unit
+  // is the container, `capacity` its content, `openRemaining` what is left in
+  // the container currently opened at the counter.
+  /** Whether this product can be sold by fractions of one unit. */
+  isDivisible?: boolean
+  /** Measure unit of the content — ml, g, L… */
+  unit?: string
+  /** Content of ONE whole unit, e.g. 100 (ml). */
+  capacity?: number
+  /** Reference portion sold at the counter, e.g. 10 (ml). */
+  retailStep?: number
+  /** Price charged for one `retailStep` portion, e.g. 1000 DA for 10 ml. */
+  retailPrice?: number
+  /** Content still available inside the currently opened unit. */
+  openRemaining?: number
   createdAt: string
 }
 
@@ -79,6 +96,12 @@ export interface PurchaseLine {
   minQuantity: number
   hasExpiration?: boolean
   expirationDate?: string
+  /** Retail settings pushed onto the product when the purchase is saved. */
+  isDivisible?: boolean
+  unit?: string
+  capacity?: number
+  retailStep?: number
+  retailPrice?: number
 }
 
 export interface Payment {
@@ -105,12 +128,27 @@ export interface Purchase {
 // Sales
 // ----------------------------------------------------------------------------
 
+/**
+ * `product`    — a whole unit taken from the stock.
+ * `retail`     — a fraction of a divisible product; `quantity` is expressed in
+ *                `unit` (ml, g…) and `unitPrice` is the price of ONE `unit`.
+ * `production` — a finished item coming out of a production batch.
+ */
+export type SaleLineKind = 'product' | 'retail' | 'production'
+
 export interface SaleLine {
   productId: string
   productName: string
   barcode: string
   quantity: number
   unitPrice: number
+  kind?: SaleLineKind
+  /** Measure unit of `quantity` for retail lines. */
+  unit?: string
+  /** Cost of one `quantity` step, captured at sale time (exact margins). */
+  unitCost?: number
+  /** Batch this line was served from, for `production` lines. */
+  productionId?: string
 }
 
 export interface Sale {
@@ -124,6 +162,68 @@ export interface Sale {
   total: number
   paid: number
   payments: Payment[]
+  date: string
+  createdAt: string
+}
+
+// ----------------------------------------------------------------------------
+// Production — technical sheets (recipes) & manufactured batches
+// ----------------------------------------------------------------------------
+
+/** One ingredient of a recipe: a stock product and the quantity it consumes. */
+export interface RecipeLine {
+  productId: string
+  productName: string
+  /**
+   * Quantity consumed per batch. Whole units for a normal product, content
+   * (ml, g…) when the product is divisible and `byContent` is true.
+   */
+  quantity: number
+  /** Cost of ONE `quantity` step (one unit, or one ml for content lines). */
+  unitCost: number
+  /** True when the recipe eats the CONTENT of a divisible product. */
+  byContent?: boolean
+  /** Measure unit shown next to the quantity for content lines. */
+  unit?: string
+}
+
+/**
+ * A "fiche technique": the recipe of a finished article. Creating one never
+ * touches the stock — it only describes what a batch would consume and yield.
+ */
+export interface TechSheet {
+  id: string
+  name: string
+  description: string
+  /** Name of the article produced (defaults to the sheet name). */
+  outputName: string
+  /** How many finished units one batch yields. */
+  outputQuantity: number
+  /** Sale price of one finished unit. */
+  outputUnitPrice: number
+  lines: RecipeLine[]
+  createdAt: string
+}
+
+export type ProductionStatus = 'active' | 'recovered'
+
+/** A batch actually manufactured — this one DOES consume the stock. */
+export interface Production {
+  id: string
+  reference: string
+  sheetId: string | null
+  sheetName: string
+  outputName: string
+  outputQuantity: number
+  outputUnitPrice: number
+  lines: RecipeLine[]
+  totalCost: number
+  totalRevenue: number
+  gain: number
+  /** Finished units already sold at the POS. */
+  soldQuantity: number
+  /** `recovered` = the components were given back to the stock. */
+  status: ProductionStatus
   date: string
   createdAt: string
 }

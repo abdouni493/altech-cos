@@ -15,7 +15,7 @@ import {
   Cell,
   Legend,
 } from 'recharts'
-import { BarChart3, Printer, Loader2, TrendingUp, TrendingDown, ShoppingCart, Wallet, HardHat, Boxes, Users, Tags, Landmark, Percent } from 'lucide-react'
+import { BarChart3, Printer, Loader2, TrendingUp, TrendingDown, ShoppingCart, Wallet, HardHat, Boxes, Users, Tags, Landmark, Percent, FlaskConical, Beaker } from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -28,8 +28,10 @@ import { useClientStore } from '@/store/useClientStore'
 import { useSupplierStore } from '@/store/useSupplierStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useCaisseStore } from '@/store/useCaisseStore'
+import { useProductionStore } from '@/store/useProductionStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { formatMoney } from '@/utils/helpers'
+import { formatMoney, round2 } from '@/utils/helpers'
+import { isDivisible, totalContent, contentUnitPrice } from '@/utils/retail'
 import {
   sumSales,
   sumPurchases,
@@ -44,6 +46,11 @@ import {
   categoryBreakdown,
   periodSoldProducts,
   productSalesAnalysis,
+  periodProductions,
+  productionStats,
+  periodProductionComponents,
+  productionRemaining,
+  productionUnitCost,
 } from '@/utils/calculations'
 
 const CAT_COLORS = ['#C026D3', '#DB2777', '#9333EA', '#7C3AED', '#E879F9', '#F472B6', '#A855F7', '#EC4899', '#8B5CF6']
@@ -69,6 +76,7 @@ export const ReportsPage = () => {
   const suppliers = useSupplierStore((s) => s.suppliers)
   const settings = useSettingsStore((s) => s.settings)
   const transactions = useCaisseStore((s) => s.transactions)
+  const productions = useProductionStore((s) => s.productions)
 
   const [from, setFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [to, setTo] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -103,6 +111,31 @@ export const ReportsPage = () => {
     const caisse = caissePeriodStats(transactions, sales, purchases, expenses, workers, start, end)
     const marginPct = totalSales > 0 ? (grossMargin / totalSales) * 100 : 0
 
+    // Production of the period + the raw material it consumed
+    const periodBatches = periodProductions(productions, start, end)
+    const prod = productionStats(periodBatches)
+    const prodComponents = periodProductionComponents(productions, start, end)
+
+    // Every retail article and the exact state of its containers
+    const retail = products.filter(isDivisible).map((p) => ({
+      id: p.id,
+      name: p.name,
+      unit: p.unit ?? '',
+      containers: p.quantity,
+      open: round2(p.openRemaining ?? 0),
+      content: totalContent(p),
+      perUnit: contentUnitPrice(p),
+      portion: `${p.retailStep ?? 0} ${p.unit ?? ''} = ${formatMoney(p.retailPrice ?? 0)}`,
+    }))
+
+    // Retail portions and finished articles sold, isolated from normal lines
+    const retailSold = periodSales.flatMap((s) =>
+      s.lines.filter((l) => l.kind === 'retail').map((l) => ({ ...l, reference: s.reference, date: s.date })),
+    )
+    const productionSold = periodSales.flatMap((s) =>
+      s.lines.filter((l) => l.kind === 'production').map((l) => ({ ...l, reference: s.reference, date: s.date })),
+    )
+
     return {
       start,
       end,
@@ -125,6 +158,12 @@ export const ReportsPage = () => {
       slowMovers,
       cats,
       caisse,
+      periodBatches,
+      prod,
+      prodComponents,
+      retail,
+      retailSold,
+      productionSold,
       clientDebts: clients.map((c) => ({ ...c, ...clientStats(c.id, sales) })).filter((c) => c.totalDebt > 0),
       supplierDebts: suppliers.map((s) => ({ ...s, ...supplierStats(s.id, purchases) })).filter((s) => s.totalDebt > 0),
       lowStock: products.filter((p) => p.quantity <= p.minQuantity),
@@ -188,11 +227,13 @@ export const ReportsPage = () => {
                   <p className="text-mono mt-2 text-xl font-bold">{formatMoney(report.netProfit)}</p>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('unitsSold')}</p><p className="text-mono text-lg font-bold text-wood-dark">{report.unitsSold}</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('cogs')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.cogs)}</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('marginRate')}</p><p className="text-mono text-lg font-bold text-sage">{report.marginPct.toFixed(1)} %</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('avgBasket')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.periodSales.length ? report.totalSales / report.periodSales.length : 0)}</p></div>
+                <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('productionCost')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.prod.totalCost)}</p></div>
+                <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('realisedGain')}</p><p className={`text-mono text-lg font-bold ${report.prod.realisedGain >= 0 ? 'text-sage' : 'text-terracotta'}`}>{formatMoney(report.prod.realisedGain)}</p></div>
               </div>
             </section>
 
@@ -245,6 +286,116 @@ export const ReportsPage = () => {
                     rows={report.slowMovers.map((p) => [p.name, p.category, `${p.quantity}`, formatMoney(p.revenue)])}
                   />
                   <p className="mt-2 text-xs text-wood-medium/70">{t('slowMoversHint')}</p>
+                </div>
+              </div>
+            </section>
+
+            {/* Production — batches, cost and gains */}
+            <section className="card-wood rounded-2xl p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark">
+                <FlaskConical size={18} className="text-violet-500" />
+                {t('productionAnalysis')}
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+                {[
+                  { l: t('batches'), v: `${report.prod.count}` },
+                  { l: t('producedUnits'), v: `${report.prod.producedUnits}` },
+                  { l: t('productionCost'), v: formatMoney(report.prod.totalCost) },
+                  { l: t('expectedRevenue'), v: formatMoney(report.prod.expectedRevenue) },
+                  { l: t('expectedGain'), v: formatMoney(report.prod.expectedGain) },
+                  { l: t('realisedGain'), v: formatMoney(report.prod.realisedGain) },
+                  { l: t('remainingUnits'), v: `${report.prod.remainingUnits}` },
+                ].map((x) => (
+                  <div key={x.l} className="rounded-xl bg-wood-cream/40 p-3">
+                    <p className="truncate text-[11px] text-wood-medium">{x.l}</p>
+                    <p className="text-mono text-base font-bold text-wood-dark">{x.v}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('productionDetails')}</h3>
+                  <ReportTable
+                    head={[t('reference'), t('techSheet'), t('producedUnits'), t('productionCost'), t('expectedGain')]}
+                    rows={report.periodBatches.map((p) => [
+                      p.reference,
+                      p.sheetName,
+                      `${p.outputQuantity} · ${p.soldQuantity} ${t('soldUnits').toLowerCase()} · ${productionRemaining(p)} ${t('remainingUnits').toLowerCase()}`,
+                      formatMoney(p.totalCost),
+                      `${p.gain >= 0 ? '+' : ''}${formatMoney(p.gain)}`,
+                    ])}
+                  />
+                </div>
+                <div>
+                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('componentsConsumed')}</h3>
+                  <ReportTable
+                    head={[t('productName'), t('componentQuantity'), t('total')]}
+                    rows={report.prodComponents.map((c) => [
+                      c.name,
+                      `${c.quantity} ${c.unit ?? ''}`,
+                      formatMoney(c.cost),
+                    ])}
+                  />
+                  <h3 className="mb-2 mt-4 text-sm font-bold text-wood-dark">{t('productionStock')}</h3>
+                  <ReportTable
+                    head={[t('batch'), t('remainingUnits'), t('unitCost'), t('productionValue')]}
+                    rows={report.periodBatches
+                      .filter((p) => productionRemaining(p) > 0)
+                      .map((p) => [
+                        p.outputName || p.sheetName,
+                        `${productionRemaining(p)}`,
+                        formatMoney(productionUnitCost(p)),
+                        formatMoney(round2(productionRemaining(p) * productionUnitCost(p))),
+                      ])}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Retail — containers, open bottle and portions sold */}
+            <section className="card-wood rounded-2xl p-5">
+              <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark">
+                <Beaker size={18} className="text-wood-warm" />
+                {t('retailProducts')}
+              </h2>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('stockReport')}</h3>
+                  <ReportTable
+                    head={[t('productName'), t('containers'), t('openContainer'), t('totalContent'), t('portionPrice')]}
+                    rows={report.retail.map((r) => [
+                      r.name,
+                      `${r.containers}`,
+                      `${r.open} ${r.unit}`,
+                      `${r.content} ${r.unit}`,
+                      r.portion,
+                    ])}
+                  />
+                </div>
+                <div>
+                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('salesDetailed')}</h3>
+                  <ReportTable
+                    head={[t('reference'), t('productName'), t('quantity'), t('total')]}
+                    rows={report.retailSold.map((l) => [
+                      l.reference,
+                      l.productName,
+                      `${l.quantity} ${l.unit ?? ''}`,
+                      formatMoney(round2(l.quantity * l.unitPrice)),
+                    ])}
+                  />
+                  <h3 className="mb-2 mt-4 text-sm font-bold text-wood-dark">
+                    {t('productionStock')} — {t('sales')}
+                  </h3>
+                  <ReportTable
+                    head={[t('reference'), t('productName'), t('quantity'), t('total')]}
+                    rows={report.productionSold.map((l) => [
+                      l.reference,
+                      l.productName,
+                      `${l.quantity}`,
+                      formatMoney(round2(l.quantity * l.unitPrice)),
+                    ])}
+                  />
                 </div>
               </div>
             </section>
