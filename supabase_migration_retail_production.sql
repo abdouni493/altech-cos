@@ -84,27 +84,68 @@ alter table public.sale_lines add column if not exists kind          text not nu
 alter table public.sale_lines add column if not exists unit          text not null default '';
 alter table public.sale_lines add column if not exists production_id text;
 
+/*
+  Postgres refuse de changer le type d'une colonne dont dépend une vue
+  (v_product_sales_stats, v_category_stats, v_brand_stats, v_dashboard_kpis…).
+  On sauvegarde donc la définition de TOUTES les vues bâties sur sale_lines,
+  on les supprime, on convertit, puis on les recrée à l'identique — y compris
+  celles qu'un projet aurait ajoutées de son côté.
+*/
 do $$
+declare
+  v_names text[] := '{}';
+  v_defs  text[] := '{}';
+  r       record;
+  i       integer;
 begin
-  if exists (
+  if not exists (
     select 1 from information_schema.columns
      where table_schema = 'public' and table_name = 'sale_lines'
        and column_name = 'quantity' and data_type = 'integer'
   ) then
-    -- line_total est une colonne générée à partir de quantity : les vues qui
-    -- l'utilisent doivent partir avant la conversion. Elles sont recréées
-    -- à l'identique en §11.
-    drop view if exists public.v_product_sales_stats cascade;
-    drop view if exists public.v_category_stats      cascade;
-    drop view if exists public.v_brand_stats         cascade;
-
-    alter table public.sale_lines drop column if exists line_total;
-    alter table public.sale_lines drop constraint if exists sale_lines_quantity_check;
-    alter table public.sale_lines alter column quantity type numeric(12,3);
-    alter table public.sale_lines add constraint sale_lines_quantity_check check (quantity > 0);
-    alter table public.sale_lines
-      add column line_total numeric(12,2) generated always as (quantity * unit_price) stored;
+    return; -- déjà converti : rien à faire
   end if;
+
+  -- 1. mémoriser les vues dépendantes (ordre de création = ordre des oid)
+  for r in
+    select c.relname, pg_get_viewdef(c.oid, true) as def
+      from pg_class c
+      join pg_rewrite rw on rw.ev_class = c.oid
+      join pg_depend  d  on d.objid = rw.oid
+     where d.refobjid = 'public.sale_lines'::regclass
+       and d.classid  = 'pg_rewrite'::regclass
+       and c.relkind  = 'v'
+       and c.relnamespace = 'public'::regnamespace
+       and c.relname <> 'sale_lines'
+     group by c.oid, c.relname
+     order by c.oid
+  loop
+    v_names := v_names || r.relname;
+    v_defs  := v_defs  || r.def;
+  end loop;
+
+  -- 2. les retirer (dans l'ordre inverse : une vue peut en utiliser une autre)
+  for i in reverse coalesce(array_length(v_names, 1), 0) .. 1 loop
+    execute format('drop view if exists public.%I cascade', v_names[i]);
+  end loop;
+
+  -- 3. convertir : line_total est générée à partir de quantity
+  alter table public.sale_lines drop column if exists line_total;
+  alter table public.sale_lines drop constraint if exists sale_lines_quantity_check;
+  alter table public.sale_lines alter column quantity type numeric(12,3);
+  alter table public.sale_lines add constraint sale_lines_quantity_check check (quantity > 0);
+  alter table public.sale_lines
+    add column line_total numeric(12,2) generated always as (quantity * unit_price) stored;
+
+  -- 4. les recréer telles quelles, avec leurs droits
+  for i in 1 .. coalesce(array_length(v_names, 1), 0) loop
+    execute format('create view public.%I as %s', v_names[i], v_defs[i]);
+    execute format('alter view public.%I set (security_invoker = on)', v_names[i]);
+    execute format('grant select on public.%I to authenticated', v_names[i]);
+  end loop;
+
+  raise notice 'sale_lines.quantity converti en numeric — % vue(s) recréée(s)',
+               coalesce(array_length(v_names, 1), 0);
 end $$;
 
 alter table public.sale_lines drop constraint if exists sale_lines_kind_check;
@@ -788,8 +829,11 @@ $$;
 -- 11. VUES — reconstruites après la conversion + détail & production
 -- ============================================================================
 
--- Recréées à l'identique : elles ont été retirées en §04 le temps de convertir
--- la colonne générée sale_lines.line_total.
+-- §04 a déjà restauré ces vues telles qu'elles étaient. On les réécrit ici dans
+-- leur version de référence pour qu'une base partie d'un schéma plus ancien
+-- reparte exactement sur la même définition (drop d'abord : après le passage de
+-- quantity en numeric, le type des colonnes calculées change).
+drop view if exists public.v_product_sales_stats cascade;
 create or replace view public.v_product_sales_stats as
 select p.id                                              as product_id,
        p.name                                            as product_name,
@@ -813,6 +857,7 @@ select p.id                                              as product_id,
   left join public.sales s      on s.id = l.sale_id
  group by p.id, p.name, p.barcode, p.brand, p.category, p.quantity, p.purchase_price, p.sale_price;
 
+drop view if exists public.v_category_stats cascade;
 create or replace view public.v_category_stats as
 select coalesce(nullif(p.category, ''), 'Sans catégorie')      as category,
        count(distinct p.id)                                    as products_count,
@@ -842,6 +887,7 @@ select coalesce(nullif(p.category, ''), 'Sans catégorie')      as category,
   ) bought on true
  group by coalesce(nullif(p.category, ''), 'Sans catégorie');
 
+drop view if exists public.v_brand_stats cascade;
 create or replace view public.v_brand_stats as
 select coalesce(nullif(p.brand, ''), 'Sans marque') as brand,
        count(distinct p.id)                         as products_count,
