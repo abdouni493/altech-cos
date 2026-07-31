@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Globe,
   LogOut,
+  Menu,
   AlertTriangle,
   CalendarClock,
   CalendarX,
@@ -21,7 +22,12 @@ import { NAV_ITEMS } from './navConfig'
 import { initials, expiryInfo, type ExpiryInfo } from '@/utils/helpers'
 import type { Product } from '@/types'
 
-export const Header = () => {
+interface HeaderProps {
+  sidebarOpen: boolean
+  onToggleSidebar: () => void
+}
+
+export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
   const { t, toggleLang, lang } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
@@ -71,9 +77,28 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-wood-light/20 bg-wood-white/80 px-6 py-3 backdrop-blur-md">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
-        <Link to="/dashboard" className="text-wood-medium/70 hover:text-wood-warm">
+      {/* Menu toggle + breadcrumb */}
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        <motion.button
+          type="button"
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.92 }}
+          onClick={() => {
+            // Close the dropdowns first so they can never overlap the drawer.
+            setNotifOpen(false)
+            setMenuOpen(false)
+            onToggleSidebar()
+          }}
+          aria-label={sidebarOpen ? t('closeMenu') : t('openMenu')}
+          aria-expanded={sidebarOpen}
+          title={t('menu')}
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-wood-light/40 bg-white/70 px-2.5 py-2 text-wood-medium transition hover:bg-wood-cream hover:text-wood-dark"
+        >
+          <Menu size={18} />
+          <span className="hidden text-xs font-semibold sm:inline">{t('menu')}</span>
+        </motion.button>
+
+        <Link to="/dashboard" className="truncate text-wood-medium/70 hover:text-wood-warm">
           {t('appName')}
         </Link>
         {crumb && (

@@ -6,6 +6,11 @@ export const fr = {
   // App
   appName: 'Belle Cosmétiques',
   appTagline: 'Gestion Professionnelle de Votre Boutique Beauté',
+  // Navigation drawer
+  menu: 'Menu',
+  openMenu: 'Ouvrir le menu',
+  closeMenu: 'Fermer le menu',
+  navigation: 'Navigation',
   // Generic
   search: 'Rechercher',
   add: 'Ajouter',
@@ -363,6 +368,10 @@ export const fr = {
 export const ar: Record<TranslationKey, string> = {
   appName: 'بيل للتجميل',
   appTagline: 'الإدارة الاحترافية لمتجر مستحضرات التجميل',
+  menu: 'القائمة',
+  openMenu: 'فتح القائمة',
+  closeMenu: 'إغلاق القائمة',
+  navigation: 'التنقل',
   search: 'بحث',
   add: 'إضافة',
   create: 'إنشاء',
