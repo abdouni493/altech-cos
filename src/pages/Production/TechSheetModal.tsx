@@ -19,7 +19,6 @@ interface TechSheetModalProps {
 const blank = () => ({
   name: '',
   description: '',
-  outputName: '',
   outputQuantity: 1,
   outputUnitPrice: 0,
 })
@@ -27,6 +26,7 @@ const blank = () => ({
 /**
  * Create / edit a "fiche technique" — the recipe of a finished article.
  * Saving one never moves the stock: it only describes what a batch consumes.
+ * The sheet carries a single name: the article produced IS the sheet's name.
  */
 export const TechSheetModal = ({ open, onClose, editing }: TechSheetModalProps) => {
   const { t } = useTranslation()
@@ -41,7 +41,6 @@ export const TechSheetModal = ({ open, onClose, editing }: TechSheetModalProps) 
       setForm({
         name: editing.name,
         description: editing.description ?? '',
-        outputName: editing.outputName || editing.name,
         outputQuantity: editing.outputQuantity,
         outputUnitPrice: editing.outputUnitPrice,
       })
@@ -75,7 +74,8 @@ export const TechSheetModal = ({ open, onClose, editing }: TechSheetModalProps) 
     const payload = {
       name: form.name.trim(),
       description: form.description.trim(),
-      outputName: (form.outputName || form.name).trim(),
+      // One name only: the article produced is the sheet itself.
+      outputName: form.name.trim(),
       outputQuantity: outputQty,
       outputUnitPrice: form.outputUnitPrice,
       lines,
@@ -133,12 +133,6 @@ export const TechSheetModal = ({ open, onClose, editing }: TechSheetModalProps) 
           <div className="rounded-xl border border-wood-light/25 p-3">
             <h4 className="mb-2 font-bold text-wood-dark">{t('outputQuantity')}</h4>
             <div className="space-y-2">
-              <Input
-                label={t('outputName')}
-                value={form.outputName}
-                onChange={(e) => setForm({ ...form, outputName: e.target.value })}
-                placeholder={form.name}
-              />
               <Input
                 label={t('outputQuantity')}
                 type="number"

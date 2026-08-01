@@ -26,6 +26,7 @@ import { Barcode } from '@/components/shared/BarcodeGenerator'
 import { useProductStore } from '@/store/useProductStore'
 import { useTranslation } from '@/i18n/useTranslation'
 import { formatMoney, expiryInfo, round2 } from '@/utils/helpers'
+import { isInStock } from '@/utils/calculations'
 import {
   isDivisible,
   totalContent,
@@ -192,7 +193,9 @@ export const StockPage = () => {
     }, 0)
     return {
       count: products.length,
-      units: products.reduce((s, p) => s + p.quantity, 0),
+      // Articles really available — not the accumulated unit total, which used
+      // to read as a product count and never matched what is on the shelf.
+      inStock: products.filter(isInStock).length,
       retailCount: retail.length,
       lowCount: products.filter((p) => p.quantity <= p.minQuantity).length,
       stockValue: round2(stockValue),
@@ -200,7 +203,8 @@ export const StockPage = () => {
   }, [products])
 
   const stockBadge = (p: Product) => {
-    if (p.quantity === 0) return <Badge tone="unpaid">{t('outOfStock')}</Badge>
+    // A retail product with an opened container is still on sale, even at 0 sealed units.
+    if (!isInStock(p)) return <Badge tone="unpaid">{t('outOfStock')}</Badge>
     if (p.quantity <= p.minQuantity) return <Badge tone="partial">{t('lowStock')}</Badge>
     return <Badge tone="paid">{t('inStock')}</Badge>
   }
@@ -230,7 +234,7 @@ export const StockPage = () => {
       {/* Summary strip */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StockStat index={0} icon={<SprayCan size={18} />} label={t('products')} value={`${summary.count}`} accent="from-fuchsia-500 to-purple-600" />
-        <StockStat index={1} icon={<Boxes size={18} />} label={t('productsInStock')} value={`${summary.units}`} accent="from-wood-warm to-gold" />
+        <StockStat index={1} icon={<Boxes size={18} />} label={t('productsInStock')} value={`${summary.inStock}`} accent="from-wood-warm to-gold" />
         <StockStat index={2} icon={<Beaker size={18} />} label={t('retailProducts')} value={`${summary.retailCount}`} accent="from-pink-500 to-fuchsia-600" />
         <StockStat index={3} icon={<AlertTriangle size={18} />} label={t('stockAlerts')} value={`${summary.lowCount}`} accent="from-terracotta to-red-600" />
         <StockStat index={4} icon={<Coins size={18} />} label={t('stockValue')} value={formatMoney(summary.stockValue)} accent="from-sage to-green-600" />

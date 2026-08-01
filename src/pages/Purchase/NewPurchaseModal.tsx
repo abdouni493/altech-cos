@@ -330,18 +330,8 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
 
                       {l.isDivisible && (
                         <>
+                          {/* Same order as the product form: unit → total quantity → sold quantity & price. */}
                           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                            <label className="text-xs text-wood-medium">
-                              {t('totalCapacity')}
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={l.capacity ?? 0}
-                                onChange={(e) => updateLine(l._key, { capacity: Number(e.target.value) })}
-                                className="input-wood mt-0.5 py-1.5"
-                              />
-                            </label>
                             <label className="text-xs text-wood-medium">
                               {t('measureUnit')}
                               <div className="mt-0.5 flex gap-1">
@@ -365,6 +355,17 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
                                   <Plus size={14} />
                                 </Button>
                               </div>
+                            </label>
+                            <label className="text-xs text-wood-medium">
+                              {`${t('totalCapacity')} (${l.unit ?? ''})`}
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={l.capacity ?? 0}
+                                onChange={(e) => updateLine(l._key, { capacity: Number(e.target.value) })}
+                                className="input-wood mt-0.5 py-1.5"
+                              />
                             </label>
                             <label className="text-xs text-wood-medium">
                               {`${t('portionSize')} (${l.unit ?? ''})`}

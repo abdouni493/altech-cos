@@ -123,7 +123,18 @@ export const Dashboard = () => {
 
   const kpis = [
     { icon: <TrendingUp size={22} />, label: t('revenueMonth'), value: stats.revenueMonth, suffix: 'DA', decimals: true, accent: 'from-sage to-green-600', hint: <>{t('today')}: {formatMoney(stats.revenueToday)}</> },
-    { icon: <Boxes size={22} />, label: t('productsInStock'), value: stats.productsInStock, accent: 'from-wood-medium to-wood-light', hint: <span className="text-terracotta">{stats.stockAlertCount} {t('stockAlerts')}</span> },
+    {
+      icon: <Boxes size={22} />,
+      label: t('productsInStock'),
+      value: stats.productsInStock,
+      accent: 'from-wood-medium to-wood-light',
+      hint: (
+        <>
+          <span className="text-mono">{stats.productsInStock}</span> / {products.length} {t('products').toLowerCase()} ·{' '}
+          <span className="text-terracotta">{stats.stockAlertCount} {t('stockAlerts').toLowerCase()}</span>
+        </>
+      ),
+    },
     { icon: <ShoppingCart size={22} />, label: t('purchasesMonth'), value: stats.purchasesMonth, suffix: 'DA', decimals: true, accent: 'from-wood-warm to-gold' },
     { icon: <Users size={22} />, label: t('activeClients'), value: clients.length, accent: 'from-wood-light to-wood-blonde' },
     { icon: <Wallet size={22} />, label: t('expensesMonth'), value: stats.expensesMonth, suffix: 'DA', decimals: true, accent: 'from-terracotta to-red-600' },

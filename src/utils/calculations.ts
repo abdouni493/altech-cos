@@ -9,6 +9,7 @@ import type {
   Production,
 } from '@/types'
 import { round2, monthKey } from './helpers'
+import { isDivisible, totalContent } from './retail'
 import {
   startOfDay,
   endOfDay,
@@ -298,9 +299,17 @@ export const periodProductionComponents = (
   return [...map.values()].sort((a, b) => b.cost - a.cost)
 }
 
+/**
+ * Is this article really on the shelf right now? A divisible product still
+ * counts while its opened container holds something, even with 0 sealed units.
+ */
+export const isInStock = (p: Product): boolean =>
+  isDivisible(p) ? totalContent(p) > 0 : p.quantity > 0
+
 export interface DashboardStats {
   revenueToday: number
   revenueMonth: number
+  /** How many DIFFERENT articles are actually available — never a unit total. */
   productsInStock: number
   stockAlertCount: number
   purchasesMonth: number
@@ -330,7 +339,9 @@ export const dashboardStats = (
   return {
     revenueToday: sumSales(sales, dayStart, dayEnd),
     revenueMonth,
-    productsInStock: products.reduce((s, p) => s + p.quantity, 0),
+    // Only the articles that really sit in the stock — an out-of-stock product
+    // is never counted, and the tile shows articles, not accumulated units.
+    productsInStock: products.filter(isInStock).length,
     stockAlertCount: products.filter((p) => p.quantity <= p.minQuantity).length,
     purchasesMonth,
     expensesMonth,

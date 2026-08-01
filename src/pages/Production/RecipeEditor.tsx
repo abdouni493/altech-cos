@@ -117,6 +117,9 @@ export const RecipeEditor = ({ lines, onChange, checkStock = false }: RecipeEdit
             const product = products.find((p) => p.id === l.productId)
             const available = product ? componentAvailable(product, !!l.byContent) : 0
             const short = checkStock && l.quantity > available
+            // Content lines are counted in the product's measure unit (ml, cm…),
+            // whole-unit lines in bare units.
+            const lineUnit = l.byContent ? (l.unit ?? product?.unit ?? '') : ''
             return (
               <div
                 key={l.productId}
@@ -191,10 +194,18 @@ export const RecipeEditor = ({ lines, onChange, checkStock = false }: RecipeEdit
                   </div>
                 )}
 
-                <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-wood-medium">
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-wood-medium">
                   {short && <AlertTriangle size={12} className="text-terracotta" />}
                   <span className={short ? 'font-semibold text-terracotta' : ''}>
-                    {t('available')}: {available} {l.byContent ? (l.unit ?? '') : ''}
+                    {t('available')}: {available} {lineUnit}
+                  </span>
+                  {/* The batch removes exactly this much — in the product's own
+                      measure unit when the recipe eats its content. */}
+                  <span className="text-wood-warm">
+                    · {t('deductedFromStock')}:{' '}
+                    <b className="text-mono">
+                      −{round2(l.quantity)} {lineUnit}
+                    </b>
                   </span>
                 </p>
               </div>

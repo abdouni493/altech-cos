@@ -278,6 +278,12 @@ export const fr = {
   barcodeOptionalHint: 'Laissez vide ou générez un code-barres si nécessaire.',
   pricingLaterHint:
     "Les prix d'achat et de vente, le seuil d'alerte et la date d'expiration seront définis automatiquement lors du premier achat de ce produit.",
+  stockAndPricing: 'Stock & prix',
+  editProductHint:
+    "Modifiez ici toutes les informations du produit : quantité, prix d'achat, prix de vente, seuil d'alerte et expiration.",
+  unitsInStock: 'Unités en stock',
+  productsAvailable: 'Produits disponibles',
+  deductedFromStock: 'Déduit du stock',
   // Caisse / Reports — detailed analytics
   categoryAnalysis: 'Analyse par catégorie',
   totalGain: 'Bénéfice total',
@@ -368,12 +374,12 @@ export const fr = {
   retailSelling: 'Vente au détail',
   enableRetail: 'Activer la vente au détail',
   retailHint:
-    "Un flacon de parfum de 100 ml vendu par 10 ml : indiquez la contenance totale d'une unité, l'unité de mesure, puis la portion vendue et son prix.",
+    "Un flacon de parfum de 100 ml vendu par 10 ml : choisissez d'abord l'unité de mesure, puis la quantité totale d'une unité, enfin la quantité vendue et son prix.",
   measureUnit: 'Unité de mesure',
   newUnit: 'Nouvelle unité',
-  totalCapacity: "Contenance totale d'une unité",
-  portionSize: 'Portion vendue',
-  portionPrice: 'Prix de la portion',
+  totalCapacity: "Quantité totale d'une unité",
+  portionSize: 'Quantité vendue',
+  portionPrice: 'Prix de la quantité vendue',
   pricePerUnit: 'Prix par',
   costPerUnit: 'Coût par',
   openContainer: 'Unité entamée',
@@ -706,6 +712,12 @@ export const ar: Record<TranslationKey, string> = {
   barcodeOptionalHint: 'اتركه فارغًا أو قم بتوليد باركود عند الحاجة.',
   pricingLaterHint:
     'سيتم تحديد سعر الشراء والبيع وحد التنبيه وتاريخ انتهاء الصلاحية تلقائيًا عند تسجيل أول عملية شراء لهذا المنتج.',
+  stockAndPricing: 'المخزون والأسعار',
+  editProductHint:
+    'عدّل هنا كل معلومات المنتج: الكمية وسعر الشراء وسعر البيع وحد التنبيه وتاريخ انتهاء الصلاحية.',
+  unitsInStock: 'الوحدات في المخزون',
+  productsAvailable: 'المنتجات المتوفرة',
+  deductedFromStock: 'يُخصم من المخزون',
   categoryAnalysis: 'تحليل حسب الفئة',
   totalGain: 'إجمالي الربح',
   allCategories: 'كل الفئات',
@@ -788,12 +800,12 @@ export const ar: Record<TranslationKey, string> = {
   retailSelling: 'البيع بالتجزئة',
   enableRetail: 'تفعيل البيع بالتجزئة',
   retailHint:
-    'قارورة عطر سعتها 100 مل تُباع بـ 10 مل: أدخل السعة الكاملة للوحدة، ووحدة القياس، ثم الكمية المباعة وسعرها.',
+    'قارورة عطر سعتها 100 مل تُباع بـ 10 مل: اختر أولًا وحدة القياس، ثم الكمية الإجمالية للوحدة، وأخيرًا الكمية المباعة وسعرها.',
   measureUnit: 'وحدة القياس',
   newUnit: 'وحدة جديدة',
-  totalCapacity: 'السعة الكاملة للوحدة',
+  totalCapacity: 'الكمية الإجمالية للوحدة',
   portionSize: 'الكمية المباعة',
-  portionPrice: 'سعر الكمية',
+  portionPrice: 'سعر الكمية المباعة',
   pricePerUnit: 'السعر لكل',
   costPerUnit: 'التكلفة لكل',
   openContainer: 'الوحدة المفتوحة',

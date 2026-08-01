@@ -5,18 +5,19 @@ import { z } from 'zod'
 import { useReactToPrint } from 'react-to-print'
 import { useRef } from 'react'
 import toast from 'react-hot-toast'
-import { Plus, RefreshCw, Printer, Check, Boxes, Info, Beaker, FlaskConical } from 'lucide-react'
+import { Plus, RefreshCw, Printer, Check, Boxes, Info, Beaker, Coins, CalendarClock } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Barcode } from '@/components/shared/BarcodeGenerator'
 import { useProductStore } from '@/store/useProductStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { generateEAN13 } from '@/utils/helpers'
+import { generateEAN13, round2 } from '@/utils/helpers'
 import type { Product } from '@/types'
 
-// Product creation captures only the identity of the article. Pricing, alert
-// thresholds and expiration are set later — when the first purchase is recorded.
+// Creating a product captures its identity: pricing, alert threshold and
+// expiration start empty and are filled in by the first purchase. Editing an
+// existing product unlocks every field — quantity, prices, alert and expiry.
 // Retail selling (a 100 ml bottle sold by 10 ml portions) is configured here so
 // the purchase screen already knows the article is divisible.
 const schema = z.object({
@@ -26,12 +27,16 @@ const schema = z.object({
   brand: z.string().min(1),
   category: z.string().min(1),
   quantity: z.coerce.number().min(0),
+  purchasePrice: z.coerce.number().min(0).optional(),
+  salePrice: z.coerce.number().min(0).optional(),
+  minQuantity: z.coerce.number().min(0).optional(),
+  hasExpiration: z.boolean().optional(),
+  expirationDate: z.string().optional(),
   isDivisible: z.boolean().optional(),
   unit: z.string().optional(),
   capacity: z.coerce.number().min(0).optional(),
   retailStep: z.coerce.number().min(0).optional(),
   retailPrice: z.coerce.number().min(0).optional(),
-  openRemaining: z.coerce.number().min(0).optional(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -78,12 +83,16 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
       brand: brands[0] ?? '',
       category: categories[0] ?? '',
       quantity: 0,
+      purchasePrice: 0,
+      salePrice: 0,
+      minQuantity: 0,
+      hasExpiration: false,
+      expirationDate: '',
       isDivisible: false,
       unit: 'ml',
       capacity: 0,
       retailStep: 0,
       retailPrice: 0,
-      openRemaining: 0,
     },
   })
 
@@ -97,12 +106,16 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
         brand: product.brand,
         category: product.category,
         quantity: product.quantity,
+        purchasePrice: product.purchasePrice ?? 0,
+        salePrice: product.salePrice ?? 0,
+        minQuantity: product.minQuantity ?? 0,
+        hasExpiration: !!product.hasExpiration,
+        expirationDate: (product.expirationDate ?? '').slice(0, 10),
         isDivisible: !!product.isDivisible,
         unit: product.unit || 'ml',
         capacity: product.capacity ?? 0,
         retailStep: product.retailStep ?? 0,
         retailPrice: product.retailPrice ?? 0,
-        openRemaining: product.openRemaining ?? 0,
       })
     } else {
       reset({
@@ -112,33 +125,43 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
         brand: brands[0] ?? '',
         category: categories[0] ?? '',
         quantity: 0,
+        purchasePrice: 0,
+        salePrice: 0,
+        minQuantity: 0,
+        hasExpiration: false,
+        expirationDate: '',
         isDivisible: false,
         unit: unitOptions[0] ?? 'ml',
         capacity: 0,
         retailStep: 0,
         retailPrice: 0,
-        openRemaining: 0,
       })
     }
   }, [open, product, presetName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const barcode = watch('barcode')
   const isDivisible = watch('isDivisible')
+  const hasExpiration = watch('hasExpiration')
   const unit = watch('unit')
+  const quantity = Number(watch('quantity') ?? 0)
   const capacity = Number(watch('capacity') ?? 0)
   const retailStep = Number(watch('retailStep') ?? 0)
   const retailPrice = Number(watch('retailPrice') ?? 0)
 
   const handlePrint = useReactToPrint({ content: () => printRef.current })
 
-  /** The retail block only makes sense once a container size is known. */
+  /**
+   * The retail block only makes sense once the content of one unit is known.
+   * `openRemaining` is never typed in: it is the leftover the till and the
+   * production module keep updating on their own, so it is only carried over.
+   */
   const retailFields = (data: FormData) => ({
     isDivisible: !!data.isDivisible,
     unit: data.isDivisible ? (data.unit ?? '') : '',
     capacity: data.isDivisible ? (data.capacity ?? 0) : 0,
     retailStep: data.isDivisible ? (data.retailStep ?? 0) : 0,
     retailPrice: data.isDivisible ? (data.retailPrice ?? 0) : 0,
-    openRemaining: data.isDivisible ? (data.openRemaining ?? 0) : 0,
+    openRemaining: data.isDivisible ? (product?.openRemaining ?? 0) : 0,
   })
 
   const onSubmit = (data: FormData) => {
@@ -147,7 +170,7 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
       return
     }
     if (product) {
-      // Edit: only touch the identity fields, keep pricing/alerts/expiry intact.
+      // Edit: every field of the product is editable, pricing and expiry included.
       const patch = {
         name: data.name,
         description: data.description ?? '',
@@ -155,6 +178,11 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
         brand: data.brand,
         category: data.category,
         quantity: data.quantity,
+        purchasePrice: data.purchasePrice ?? 0,
+        salePrice: data.salePrice ?? 0,
+        minQuantity: data.minQuantity ?? 0,
+        hasExpiration: !!data.hasExpiration,
+        expirationDate: data.hasExpiration ? data.expirationDate || undefined : undefined,
         ...retailFields(data),
       }
       updateProduct(product.id, patch)
@@ -275,18 +303,8 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
           </div>
         </div>
 
-        {/* Current stock */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label-wood flex items-center gap-1.5">
-              <Boxes size={15} className="text-wood-warm" />
-              {isDivisible ? `${t('currentStock')} — ${t('sealedUnits')}` : t('currentStock')}
-            </label>
-            <input type="number" min={0} className="input-wood" {...register('quantity')} />
-          </div>
-        </div>
-
-        {/* Retail selling — a 100 ml bottle sold by 10 ml portions */}
+        {/* Retail selling — a 100 ml bottle sold by 10 ml portions.
+            Order asked by the shop: unit → total quantity → sold quantity & price. */}
         <div className="rounded-xl border border-wood-light/30 bg-gradient-to-br from-fuchsia-50/60 to-white p-4">
           <label className="flex cursor-pointer items-center gap-2">
             <span className="relative inline-flex">
@@ -307,95 +325,147 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
                 {t('retailHint')}
               </p>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="label-wood">{`${t('totalCapacity')} (${unit || ''})`}</label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('capacity')} />
+              {/* 1 — measure unit */}
+              <div>
+                <div className="flex items-end gap-2">
+                  <Select label={`1. ${t('measureUnit')}`} {...register('unit')}>
+                    {unitOptions.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button type="button" variant="outline" size="icon" onClick={() => setShowAddUnit((v) => !v)}>
+                    <Plus size={18} />
+                  </Button>
                 </div>
-                <div>
-                  <div className="flex items-end gap-2">
-                    <Select label={t('measureUnit')} {...register('unit')}>
-                      {unitOptions.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </Select>
-                    <Button type="button" variant="outline" size="icon" onClick={() => setShowAddUnit((v) => !v)}>
-                      <Plus size={18} />
+                {showAddUnit && (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={newUnit}
+                      onChange={(e) => setNewUnit(e.target.value)}
+                      placeholder={t('newUnit')}
+                      className="input-wood"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const name = newUnit.trim()
+                        if (!name) return
+                        addUnit(name)
+                        setValue('unit', name)
+                        setNewUnit('')
+                        setShowAddUnit(false)
+                      }}
+                    >
+                      <Check size={15} />
                     </Button>
                   </div>
-                  {showAddUnit && (
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        value={newUnit}
-                        onChange={(e) => setNewUnit(e.target.value)}
-                        placeholder={t('newUnit')}
-                        className="input-wood"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          const name = newUnit.trim()
-                          if (!name) return
-                          addUnit(name)
-                          setValue('unit', name)
-                          setNewUnit('')
-                          setShowAddUnit(false)
-                        }}
-                      >
-                        <Check size={15} />
-                      </Button>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
 
+              {/* 2 — total quantity held by one unit */}
+              <div>
+                <label className="label-wood">{`2. ${t('totalCapacity')} (${unit || ''})`}</label>
+                <input type="number" min={0} step="0.01" className="input-wood" {...register('capacity')} />
+              </div>
+
+              {/* 3 — quantity sold at the counter and its price */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="label-wood">{`${t('portionSize')} (${unit || ''})`}</label>
+                  <label className="label-wood">{`3. ${t('portionSize')} (${unit || ''})`}</label>
                   <input type="number" min={0} step="0.01" className="input-wood" {...register('retailStep')} />
                 </div>
                 <div>
-                  <label className="label-wood">{`${t('portionPrice')} (DA)`}</label>
+                  <label className="label-wood">{`4. ${t('portionPrice')} (DA)`}</label>
                   <input type="number" min={0} step="0.01" className="input-wood" {...register('retailPrice')} />
                 </div>
               </div>
 
-              {/* Content still inside the container opened at the counter */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl bg-wood-cream/50 px-3 py-2 text-xs text-wood-medium">
+                {retailStep > 0 && retailPrice > 0 ? (
+                  <>
+                    {t('pricePerUnit')} {unit}:{' '}
+                    <b className="text-mono text-wood-dark">
+                      {(retailPrice / retailStep).toFixed(2)} DA
+                    </b>
+                    {capacity > 0 && (
+                      <>
+                        {' · '}
+                        {t('totalContent')}:{' '}
+                        <b className="text-mono text-wood-dark">
+                          {round2(quantity * capacity + (product?.openRemaining ?? 0))} {unit}
+                        </b>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  t('retailNotConfigured')
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Stock — and, when editing, every price / alert / expiry field */}
+        <div className="rounded-xl border border-wood-light/30 bg-wood-cream/30 p-4">
+          <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-wood-dark">
+            <Boxes size={15} className="text-wood-warm" />
+            {product ? t('stockAndPricing') : t('currentStock')}
+          </h4>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label-wood">
+                {isDivisible ? `${t('currentStock')} — ${t('sealedUnits')}` : t('currentStock')}
+              </label>
+              <input type="number" min={0} className="input-wood" {...register('quantity')} />
+            </div>
+
+            {product && (
+              <>
+                <div>
+                  <label className="label-wood">{t('minQuantity')}</label>
+                  <input type="number" min={0} className="input-wood" {...register('minQuantity')} />
+                </div>
                 <div>
                   <label className="label-wood flex items-center gap-1.5">
-                    <FlaskConical size={14} className="text-wood-warm" />
-                    {`${t('openContainer')} (${unit || ''})`}
+                    <Coins size={14} className="text-wood-warm" />
+                    {`${t('purchasePrice')} (DA)`}
                   </label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('openRemaining')} />
+                  <input type="number" min={0} step="0.01" className="input-wood" {...register('purchasePrice')} />
                 </div>
-                <div className="flex items-end">
-                  <div className="w-full rounded-xl bg-wood-cream/50 px-3 py-2 text-xs text-wood-medium">
-                    {retailStep > 0 && retailPrice > 0 ? (
-                      <>
-                        {t('pricePerUnit')} {unit}:{' '}
-                        <b className="text-mono text-wood-dark">
-                          {(retailPrice / retailStep).toFixed(2)} DA
-                        </b>
-                        {capacity > 0 && (
-                          <>
-                            {' · '}
-                            {t('totalCapacity')}:{' '}
-                            <b className="text-mono text-wood-dark">
-                              {capacity} {unit}
-                            </b>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      t('retailNotConfigured')
-                    )}
-                  </div>
+                <div>
+                  <label className="label-wood flex items-center gap-1.5">
+                    <Coins size={14} className="text-sage" />
+                    {`${t('salePrice')} (DA)`}
+                  </label>
+                  <input type="number" min={0} step="0.01" className="input-wood" {...register('salePrice')} />
                 </div>
-              </div>
+              </>
+            )}
+          </div>
+
+          {product && (
+            <div className="mt-3 space-y-2">
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="relative inline-flex">
+                  <input type="checkbox" className="peer sr-only" {...register('hasExpiration')} />
+                  <span className="h-5 w-9 rounded-full bg-wood-light/40 transition peer-checked:bg-wood-warm" />
+                  <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4" />
+                </span>
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-wood-dark">
+                  <CalendarClock size={15} className="text-wood-warm" />
+                  {t('enableExpiration')}
+                </span>
+              </label>
+              {hasExpiration && (
+                <div className="sm:max-w-[50%]">
+                  <label className="label-wood">{t('expirationDate')}</label>
+                  <input type="date" className="input-wood" {...register('expirationDate')} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -431,10 +501,10 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
           </div>
         </div>
 
-        {/* Pricing notice — set later during the first purchase */}
+        {/* Creation: prices come with the first purchase. Edition: everything is editable. */}
         <div className="flex items-start gap-2 rounded-xl border border-wood-light/30 bg-gradient-to-br from-wood-cream/60 to-white px-4 py-3 text-xs text-wood-medium">
           <Info size={15} className="mt-0.5 shrink-0 text-wood-warm" />
-          <span>{t('pricingLaterHint')}</span>
+          <span>{product ? t('editProductHint') : t('pricingLaterHint')}</span>
         </div>
       </form>
     </Modal>
