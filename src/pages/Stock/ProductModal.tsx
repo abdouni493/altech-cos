@@ -1,32 +1,51 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useReactToPrint } from 'react-to-print'
-import { useRef } from 'react'
 import toast from 'react-hot-toast'
-import { Plus, RefreshCw, Printer, Check, Boxes, Info, Beaker, Coins, CalendarClock } from 'lucide-react'
+import {
+  Plus,
+  RefreshCw,
+  Printer,
+  Check,
+  Boxes,
+  Info,
+  Coins,
+  CalendarClock,
+  PackageOpen,
+  Package,
+  Tag,
+  X,
+  TrendingUp,
+} from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { Input, Textarea, Select } from '@/components/ui/Input'
+import { Input, Textarea } from '@/components/ui/Input'
 import { Barcode } from '@/components/shared/BarcodeGenerator'
 import { useProductStore } from '@/store/useProductStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { generateEAN13, round2 } from '@/utils/helpers'
+import { formatMoney, generateEAN13, round2 } from '@/utils/helpers'
+import { clsx } from '@/utils/clsx'
 import type { Product } from '@/types'
 
-// Creating a product captures its identity: pricing, alert threshold and
-// expiration start empty and are filled in by the first purchase. Editing an
-// existing product unlocks every field — quantity, prices, alert and expiry.
-// Retail selling (a 100 ml bottle sold by 10 ml portions) is configured here so
-// the purchase screen already knows the article is divisible.
+// Creating a product captures its identity and its stock: purchase price, sale
+// price, alert threshold and expiration are filled in by the first purchase.
+// Editing unlocks every field.
+//
+// Selling by detail ("vente en détail"): a box of 20 cigarettes is stocked as
+// boxes and also sold piece by piece. The box is the stock unit, the piece the
+// detail unit, `capacity` the number of pieces per box and `openRemaining` the
+// pieces left in the box opened at the counter.
 const schema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   barcode: z.string().optional(),
   brand: z.string().min(1),
   category: z.string().min(1),
+  stockUnit: z.string().optional(),
   quantity: z.coerce.number().min(0),
+  openRemaining: z.coerce.number().min(0).optional(),
   purchasePrice: z.coerce.number().min(0).optional(),
   salePrice: z.coerce.number().min(0).optional(),
   minQuantity: z.coerce.number().min(0).optional(),
@@ -35,13 +54,109 @@ const schema = z.object({
   isDivisible: z.boolean().optional(),
   unit: z.string().optional(),
   capacity: z.coerce.number().min(0).optional(),
+  detailPrice: z.coerce.number().min(0).optional(),
   retailStep: z.coerce.number().min(0).optional(),
-  retailPrice: z.coerce.number().min(0).optional(),
+  retailBarcode: z.string().optional(),
 })
 type FormData = z.infer<typeof schema>
 
-/** Units every shop needs — the list grows with whatever the user creates. */
-const DEFAULT_UNITS = ['ml', 'L', 'g', 'kg', 'cm', 'm', 'pcs']
+/** Units every shop needs — the lists grow with whatever the user creates. */
+const DEFAULT_STOCK_UNITS = ['boîte', 'paquet', 'flacon', 'carton', 'pièce', 'sachet', 'tube', 'bouteille']
+const DEFAULT_DETAIL_UNITS = ['pièce', 'ml', 'L', 'g', 'kg', 'm', 'cm']
+
+/** A select whose list can be extended in place with the "+" button. */
+const SelectCreate = ({
+  label,
+  value,
+  options,
+  onChange,
+  onCreate,
+  placeholder,
+  emptyLabel,
+  error,
+}: {
+  label: string
+  value: string
+  options: string[]
+  onChange: (v: string) => void
+  onCreate: (v: string) => void
+  placeholder: string
+  emptyLabel?: string
+  error?: string
+}) => {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+  const confirm = () => {
+    const name = draft.trim()
+    if (!name) return
+    onCreate(name)
+    onChange(name)
+    setDraft('')
+    setAdding(false)
+  }
+  return (
+    <div>
+      <label className="label-wood">{label}</label>
+      {adding ? (
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                confirm()
+              }
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                setAdding(false)
+              }
+            }}
+            placeholder={placeholder}
+            className="input-wood"
+          />
+          <Button type="button" size="icon" onClick={confirm} title="Entrée">
+            <Check size={17} />
+          </Button>
+          <Button type="button" variant="outline" size="icon" onClick={() => setAdding(false)}>
+            <X size={17} />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <select value={value} onChange={(e) => onChange(e.target.value)} className={clsx('input-wood cursor-pointer', error && 'border-terracotta')}>
+            {emptyLabel !== undefined && <option value="">{emptyLabel}</option>}
+            {options.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+          <Button type="button" variant="outline" size="icon" onClick={() => setAdding(true)} title={placeholder}>
+            <Plus size={17} />
+          </Button>
+        </div>
+      )}
+      {error && <p className="mt-1 text-xs text-terracotta">{error}</p>}
+    </div>
+  )
+}
+
+/** iOS-like switch bound to a react-hook-form checkbox. */
+const Toggle = ({ input, label, icon }: { input: React.InputHTMLAttributes<HTMLInputElement>; label: string; icon: React.ReactNode }) => (
+  <label className="flex cursor-pointer select-none items-center gap-2.5">
+    <span className="relative inline-flex">
+      <input type="checkbox" className="peer sr-only" {...input} />
+      <span className="h-6 w-11 rounded-full bg-[#D5DBE8] transition peer-checked:bg-wood-warm" />
+      <span className="absolute start-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 rtl:peer-checked:-translate-x-5" />
+    </span>
+    <span className="flex items-center gap-1.5 text-sm font-bold text-wood-dark">
+      {icon}
+      {label}
+    </span>
+  </label>
+)
 
 interface ProductModalProps {
   open: boolean
@@ -57,15 +172,30 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
     useProductStore()
   const printRef = useRef<HTMLDivElement>(null)
 
-  const [showAddBrand, setShowAddBrand] = useState(false)
-  const [showAddCat, setShowAddCat] = useState(false)
-  const [showAddUnit, setShowAddUnit] = useState(false)
-  const [newBrand, setNewBrand] = useState('')
-  const [newCat, setNewCat] = useState('')
-  const [newUnit, setNewUnit] = useState('')
+  const stockUnitOptions = [...new Set([...DEFAULT_STOCK_UNITS, ...units])]
+  const detailUnitOptions = [...new Set([...DEFAULT_DETAIL_UNITS, ...units])]
 
-  // Shop units first, then the built-in ones that are still missing.
-  const unitOptions = [...units, ...DEFAULT_UNITS.filter((u) => !units.includes(u))]
+  const emptyValues = (): FormData => ({
+    name: presetName ?? '',
+    description: '',
+    barcode: '', // empty by default — generate on demand
+    brand: brands[0] ?? '',
+    category: categories[0] ?? '',
+    stockUnit: '',
+    quantity: 0,
+    openRemaining: 0,
+    purchasePrice: 0,
+    salePrice: 0,
+    minQuantity: 0,
+    hasExpiration: false,
+    expirationDate: '',
+    isDivisible: false,
+    unit: 'pièce',
+    capacity: 0,
+    detailPrice: 0,
+    retailStep: 1,
+    retailBarcode: '',
+  })
 
   const {
     register,
@@ -74,136 +204,113 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
     setValue,
     watch,
     formState: { errors },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name: '',
-      description: '',
-      barcode: '',
-      brand: brands[0] ?? '',
-      category: categories[0] ?? '',
-      quantity: 0,
-      purchasePrice: 0,
-      salePrice: 0,
-      minQuantity: 0,
-      hasExpiration: false,
-      expirationDate: '',
-      isDivisible: false,
-      unit: 'ml',
-      capacity: 0,
-      retailStep: 0,
-      retailPrice: 0,
-    },
-  })
+  } = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
 
   useEffect(() => {
     if (!open) return
     if (product) {
+      const step = product.retailStep && product.retailStep > 0 ? product.retailStep : 1
       reset({
         name: product.name,
         description: product.description ?? '',
         barcode: product.barcode ?? '',
         brand: product.brand,
         category: product.category,
+        stockUnit: product.stockUnit ?? '',
         quantity: product.quantity,
+        openRemaining: product.openRemaining ?? 0,
         purchasePrice: product.purchasePrice ?? 0,
         salePrice: product.salePrice ?? 0,
         minQuantity: product.minQuantity ?? 0,
         hasExpiration: !!product.hasExpiration,
         expirationDate: (product.expirationDate ?? '').slice(0, 10),
         isDivisible: !!product.isDivisible,
-        unit: product.unit || 'ml',
+        unit: product.unit || 'pièce',
         capacity: product.capacity ?? 0,
-        retailStep: product.retailStep ?? 0,
-        retailPrice: product.retailPrice ?? 0,
+        detailPrice: round2((product.retailPrice ?? 0) / step),
+        retailStep: step,
+        retailBarcode: product.retailBarcode ?? '',
       })
     } else {
-      reset({
-        name: presetName ?? '',
-        description: '',
-        barcode: '', // empty by default — generate on demand
-        brand: brands[0] ?? '',
-        category: categories[0] ?? '',
-        quantity: 0,
-        purchasePrice: 0,
-        salePrice: 0,
-        minQuantity: 0,
-        hasExpiration: false,
-        expirationDate: '',
-        isDivisible: false,
-        unit: unitOptions[0] ?? 'ml',
-        capacity: 0,
-        retailStep: 0,
-        retailPrice: 0,
-      })
+      reset(emptyValues())
     }
   }, [open, product, presetName]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const barcode = watch('barcode')
   const isDivisible = watch('isDivisible')
   const hasExpiration = watch('hasExpiration')
-  const unit = watch('unit')
+  const stockUnit = watch('stockUnit') ?? ''
+  const unit = watch('unit') ?? ''
   const quantity = Number(watch('quantity') ?? 0)
+  const openRemaining = Number(watch('openRemaining') ?? 0)
   const capacity = Number(watch('capacity') ?? 0)
-  const retailStep = Number(watch('retailStep') ?? 0)
-  const retailPrice = Number(watch('retailPrice') ?? 0)
+  const detailPrice = Number(watch('detailPrice') ?? 0)
+  const retailStep = Number(watch('retailStep') ?? 1)
+  const salePrice = Number(watch('salePrice') ?? product?.salePrice ?? 0)
+  const purchasePrice = Number(watch('purchasePrice') ?? product?.purchasePrice ?? 0)
+
+  const boxName = stockUnit || t('unitWord')
+  const totalPieces = round2(quantity * capacity + openRemaining)
+  const fullBoxInDetail = round2(capacity * detailPrice)
+  const costPerPiece = capacity > 0 ? round2(purchasePrice / capacity) : 0
 
   const handlePrint = useReactToPrint({ content: () => printRef.current })
 
-  /**
-   * The retail block only makes sense once the content of one unit is known.
-   * `openRemaining` is never typed in: it is the leftover the till and the
-   * production module keep updating on their own, so it is only carried over.
-   */
-  const retailFields = (data: FormData) => ({
-    isDivisible: !!data.isDivisible,
-    unit: data.isDivisible ? (data.unit ?? '') : '',
-    capacity: data.isDivisible ? (data.capacity ?? 0) : 0,
-    retailStep: data.isDivisible ? (data.retailStep ?? 0) : 0,
-    retailPrice: data.isDivisible ? (data.retailPrice ?? 0) : 0,
-    openRemaining: data.isDivisible ? (product?.openRemaining ?? 0) : 0,
-  })
+  const retailFields = (data: FormData) => {
+    const step = data.retailStep && data.retailStep > 0 ? data.retailStep : 1
+    return {
+      isDivisible: !!data.isDivisible,
+      unit: data.isDivisible ? (data.unit ?? '') : '',
+      capacity: data.isDivisible ? (data.capacity ?? 0) : 0,
+      retailStep: data.isDivisible ? step : 0,
+      retailPrice: data.isDivisible ? round2((data.detailPrice ?? 0) * step) : 0,
+      openRemaining: data.isDivisible ? (data.openRemaining ?? 0) : 0,
+      retailBarcode: data.isDivisible ? (data.retailBarcode ?? '').trim() : '',
+    }
+  }
 
   const onSubmit = (data: FormData) => {
-    if (data.isDivisible && (data.capacity ?? 0) <= 0) {
-      toast.error(`${t('totalCapacity')} — ${t('required')}`)
-      return
+    if (data.isDivisible) {
+      if ((data.capacity ?? 0) <= 0) {
+        toast.error(`${t('piecesPerBox')} — ${t('required')}`)
+        return
+      }
+      if ((data.openRemaining ?? 0) >= (data.capacity ?? 0)) {
+        toast.error(t('loosePiecesTooMany'))
+        return
+      }
+    }
+    const identity = {
+      name: data.name.trim(),
+      description: data.description ?? '',
+      barcode: (data.barcode ?? '').trim(),
+      brand: data.brand,
+      category: data.category,
+      stockUnit: (data.stockUnit ?? '').trim(),
+      quantity: data.quantity,
+      ...retailFields(data),
     }
     if (product) {
-      // Edit: every field of the product is editable, pricing and expiry included.
       const patch = {
-        name: data.name,
-        description: data.description ?? '',
-        barcode: data.barcode ?? '',
-        brand: data.brand,
-        category: data.category,
-        quantity: data.quantity,
+        ...identity,
         purchasePrice: data.purchasePrice ?? 0,
         salePrice: data.salePrice ?? 0,
         minQuantity: data.minQuantity ?? 0,
         hasExpiration: !!data.hasExpiration,
         expirationDate: data.hasExpiration ? data.expirationDate || undefined : undefined,
-        ...retailFields(data),
       }
       updateProduct(product.id, patch)
       toast.success(t('saved'))
       onSaved?.({ ...product, ...patch })
     } else {
-      // New product: pricing, alert threshold and expiration start empty and are
-      // filled in automatically when the first purchase of this product is saved.
+      // Prices, alert threshold and expiration arrive with the first purchase.
       const created = addProduct({
-        name: data.name,
-        description: data.description ?? '',
-        barcode: data.barcode ?? '',
-        brand: data.brand,
-        category: data.category,
-        quantity: data.quantity,
+        ...identity,
         purchasePrice: 0,
         salePrice: 0,
         minQuantity: 0,
         hasExpiration: false,
         expirationDate: undefined,
-        ...retailFields(data),
       })
       toast.success(t('saved'))
       onSaved?.(created)
@@ -216,250 +323,205 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
       open={open}
       onClose={onClose}
       title={product ? t('editProduct') : t('newProduct')}
+      subtitle={product ? product.name : t('newProductSubtitle')}
+      icon={<Package size={20} />}
       size="lg"
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button onClick={handleSubmit(onSubmit)}>
+          <Button onClick={handleSubmit(onSubmit)} kbd="Ctrl+↵">
             <Check size={16} />
             {t('save')}
           </Button>
         </>
       }
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <Input label={t('productName')} {...register('name')} error={errors.name && t('required')} />
-        <Textarea label={t('description')} {...register('description')} />
-
-        {/* Brand + Category */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <div className="flex items-end gap-2">
-              <Select label={t('brand')} {...register('brand')} error={errors.brand && t('required')}>
-                {brands.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </Select>
-              <Button type="button" variant="outline" size="icon" onClick={() => setShowAddBrand((v) => !v)}>
-                <Plus size={18} />
-              </Button>
-            </div>
-            {showAddBrand && (
-              <div className="mt-2 flex gap-2">
-                <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)} placeholder={t('newBrand')} className="input-wood" />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    if (newBrand.trim()) {
-                      addBrand(newBrand.trim())
-                      setValue('brand', newBrand.trim())
-                      setNewBrand('')
-                      setShowAddBrand(false)
-                    }
-                  }}
-                >
-                  <Check size={15} />
-                </Button>
-              </div>
-            )}
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            handleSubmit(onSubmit)()
+          }
+        }}
+        className="space-y-5"
+      >
+        {/* 1 — identity */}
+        <section className="space-y-4">
+          <Input label={t('productName')} autoFocus {...register('name')} error={errors.name && t('required')} />
+          <Textarea label={t('description')} {...register('description')} />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <SelectCreate
+              label={t('brand')}
+              value={watch('brand')}
+              options={brands}
+              onChange={(v) => setValue('brand', v, { shouldValidate: true })}
+              onCreate={addBrand}
+              placeholder={t('newBrand')}
+              error={errors.brand && t('required')}
+            />
+            <SelectCreate
+              label={t('category')}
+              value={watch('category')}
+              options={categories}
+              onChange={(v) => setValue('category', v, { shouldValidate: true })}
+              onCreate={addCategory}
+              placeholder={t('newCategory')}
+              error={errors.category && t('required')}
+            />
+            <SelectCreate
+              label={`${t('stockUnitLabel')} (${t('optional')})`}
+              value={stockUnit}
+              options={stockUnitOptions}
+              onChange={(v) => setValue('stockUnit', v)}
+              onCreate={addUnit}
+              placeholder={t('newUnit')}
+              emptyLabel={`— ${t('unitWord')} —`}
+            />
           </div>
-          <div>
-            <div className="flex items-end gap-2">
-              <Select label={t('category')} {...register('category')} error={errors.category && t('required')}>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
-              <Button type="button" variant="outline" size="icon" onClick={() => setShowAddCat((v) => !v)}>
-                <Plus size={18} />
-              </Button>
-            </div>
-            {showAddCat && (
-              <div className="mt-2 flex gap-2">
-                <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder={t('newCategory')} className="input-wood" />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    if (newCat.trim()) {
-                      addCategory(newCat.trim())
-                      setValue('category', newCat.trim())
-                      setNewCat('')
-                      setShowAddCat(false)
-                    }
-                  }}
-                >
-                  <Check size={15} />
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
+        </section>
 
-        {/* Retail selling — a 100 ml bottle sold by 10 ml portions.
-            Order asked by the shop: unit → total quantity → sold quantity & price. */}
-        <div className="rounded-xl border border-wood-light/30 bg-gradient-to-br from-fuchsia-50/60 to-white p-4">
-          <label className="flex cursor-pointer items-center gap-2">
-            <span className="relative inline-flex">
-              <input type="checkbox" className="peer sr-only" {...register('isDivisible')} />
-              <span className="h-5 w-9 rounded-full bg-wood-light/40 transition peer-checked:bg-wood-warm" />
-              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4" />
-            </span>
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-wood-dark">
-              <Beaker size={15} className="text-wood-warm" />
-              {t('enableRetail')}
-            </span>
-          </label>
+        {/* 2 — selling by detail */}
+        <section
+          className={clsx(
+            'rounded-xl border p-4 transition-colors',
+            isDivisible ? 'border-wood-warm/40 bg-wood-warm/[0.04]' : 'border-woodborder bg-[#F8FAFD]',
+          )}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Toggle input={register('isDivisible')} label={t('enableDetailSelling')} icon={<PackageOpen size={16} className="text-wood-warm" />} />
+            <span className="text-xs text-wood-medium">{t('detailSellingExample')}</span>
+          </div>
 
           {isDivisible && (
-            <div className="mt-3 space-y-3">
-              <p className="flex items-start gap-2 text-xs text-wood-medium">
-                <Info size={13} className="mt-0.5 shrink-0 text-wood-warm" />
-                {t('retailHint')}
-              </p>
-
-              {/* 1 — measure unit */}
-              <div>
-                <div className="flex items-end gap-2">
-                  <Select label={`1. ${t('measureUnit')}`} {...register('unit')}>
-                    {unitOptions.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button type="button" variant="outline" size="icon" onClick={() => setShowAddUnit((v) => !v)}>
-                    <Plus size={18} />
-                  </Button>
-                </div>
-                {showAddUnit && (
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={newUnit}
-                      onChange={(e) => setNewUnit(e.target.value)}
-                      placeholder={t('newUnit')}
-                      className="input-wood"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        const name = newUnit.trim()
-                        if (!name) return
-                        addUnit(name)
-                        setValue('unit', name)
-                        setNewUnit('')
-                        setShowAddUnit(false)
-                      }}
-                    >
-                      <Check size={15} />
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* 2 — total quantity held by one unit */}
-              <div>
-                <label className="label-wood">{`2. ${t('totalCapacity')} (${unit || ''})`}</label>
-                <input type="number" min={0} step="0.01" className="input-wood" {...register('capacity')} />
-              </div>
-
-              {/* 3 — quantity sold at the counter and its price */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <SelectCreate
+                  label={`1. ${t('detailUnit')}`}
+                  value={unit}
+                  options={detailUnitOptions}
+                  onChange={(v) => setValue('unit', v)}
+                  onCreate={addUnit}
+                  placeholder={t('newUnit')}
+                />
                 <div>
-                  <label className="label-wood">{`3. ${t('portionSize')} (${unit || ''})`}</label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('retailStep')} />
+                  <label className="label-wood">{`2. ${t('piecesPerBox').replace('{box}', boxName).replace('{unit}', unit)}`}</label>
+                  <input type="number" min={0} step="any" className="input-wood text-mono" {...register('capacity')} />
                 </div>
                 <div>
-                  <label className="label-wood">{`4. ${t('portionPrice')} (DA)`}</label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('retailPrice')} />
+                  <label className="label-wood">{`3. ${t('pricePerPiece').replace('{unit}', unit)} (DA)`}</label>
+                  <input type="number" min={0} step="0.01" className="input-wood text-mono" {...register('detailPrice')} />
                 </div>
               </div>
 
-              <div className="rounded-xl bg-wood-cream/50 px-3 py-2 text-xs text-wood-medium">
-                {retailStep > 0 && retailPrice > 0 ? (
-                  <>
-                    {t('pricePerUnit')} {unit}:{' '}
-                    <b className="text-mono text-wood-dark">
-                      {(retailPrice / retailStep).toFixed(2)} DA
-                    </b>
-                    {capacity > 0 && (
-                      <>
-                        {' · '}
-                        {t('totalContent')}:{' '}
-                        <b className="text-mono text-wood-dark">
-                          {round2(quantity * capacity + (product?.openRemaining ?? 0))} {unit}
-                        </b>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  t('retailNotConfigured')
-                )}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label-wood">{`${t('defaultPortion')} (${unit})`}</label>
+                  <input type="number" min={0} step="any" className="input-wood text-mono" {...register('retailStep')} />
+                  <p className="mt-1 text-xs text-wood-medium/80">{t('defaultPortionHint')}</p>
+                </div>
+                <Input
+                  label={`${t('detailBarcode')} (${t('optional')})`}
+                  className="font-mono"
+                  {...register('retailBarcode')}
+                  hint={t('detailBarcodeHint')}
+                />
               </div>
+
+              {/* Live summary */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-lg border border-woodborder bg-white p-2.5">
+                  <p className="text-[11px] font-semibold text-wood-medium">{`1 ${boxName}`}</p>
+                  <p className="text-mono text-sm font-bold text-wood-dark">{`${capacity || 0} ${unit}`}</p>
+                </div>
+                <div className="rounded-lg border border-woodborder bg-white p-2.5">
+                  <p className="text-[11px] font-semibold text-wood-medium">{`${t('pricePerPiece').replace('{unit}', unit)}`}</p>
+                  <p className="text-mono text-sm font-bold text-sage">{formatMoney(detailPrice)}</p>
+                </div>
+                <div className="rounded-lg border border-woodborder bg-white p-2.5">
+                  <p className="text-[11px] font-semibold text-wood-medium">{t('fullBoxInDetail').replace('{box}', boxName)}</p>
+                  <p className="text-mono text-sm font-bold text-wood-warm">{formatMoney(fullBoxInDetail)}</p>
+                </div>
+                <div className="rounded-lg border border-woodborder bg-white p-2.5">
+                  <p className="text-[11px] font-semibold text-wood-medium">{t('totalPieces').replace('{unit}', unit)}</p>
+                  <p className="text-mono text-sm font-bold text-wood-dark">{totalPieces}</p>
+                </div>
+              </div>
+              {product && salePrice > 0 && fullBoxInDetail > 0 && (
+                <p className="flex items-center gap-1.5 rounded-lg bg-sage/10 px-3 py-2 text-xs font-medium text-[#067647]">
+                  <TrendingUp size={14} />
+                  {t('detailVsBox')
+                    .replace('{box}', boxName)
+                    .replace('{boxPrice}', formatMoney(salePrice))
+                    .replace('{detail}', formatMoney(fullBoxInDetail))
+                    .replace('{diff}', formatMoney(round2(fullBoxInDetail - salePrice)))}
+                  {costPerPiece > 0 && ` · ${t('costPerUnit')} ${unit}: ${formatMoney(costPerPiece)}`}
+                </p>
+              )}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Stock — and, when editing, every price / alert / expiry field */}
-        <div className="rounded-xl border border-wood-light/30 bg-wood-cream/30 p-4">
-          <h4 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-wood-dark">
-            <Boxes size={15} className="text-wood-warm" />
+        {/* 3 — stock (and, when editing, prices / alert / expiry) */}
+        <section className="rounded-xl border border-woodborder p-4">
+          <h4 className="mb-3 flex items-center gap-1.5 text-sm font-bold text-wood-dark">
+            <Boxes size={16} className="text-wood-warm" />
             {product ? t('stockAndPricing') : t('currentStock')}
           </h4>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="label-wood">
-                {isDivisible ? `${t('currentStock')} — ${t('sealedUnits')}` : t('currentStock')}
-              </label>
-              <input type="number" min={0} className="input-wood" {...register('quantity')} />
+              <label className="label-wood">{`${t('currentStock')} (${isDivisible ? t('sealedWord') + ' ' : ''}${stockUnit || t('unitWord')})`}</label>
+              <input type="number" min={0} className="input-wood text-mono" {...register('quantity')} />
             </div>
+            {isDivisible && (
+              <div>
+                <label className="label-wood">{t('loosePieces').replace('{unit}', unit)}</label>
+                <input type="number" min={0} step="any" className="input-wood text-mono" {...register('openRemaining')} />
+                <p className="mt-1 text-xs text-wood-medium/80">{t('loosePiecesHint').replace('{box}', boxName)}</p>
+              </div>
+            )}
 
             {product && (
               <>
                 <div>
                   <label className="label-wood">{t('minQuantity')}</label>
-                  <input type="number" min={0} className="input-wood" {...register('minQuantity')} />
+                  <input type="number" min={0} className="input-wood text-mono" {...register('minQuantity')} />
                 </div>
                 <div>
                   <label className="label-wood flex items-center gap-1.5">
                     <Coins size={14} className="text-wood-warm" />
-                    {`${t('purchasePrice')} (DA)`}
+                    {`${t('purchasePrice')} — 1 ${boxName} (DA)`}
                   </label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('purchasePrice')} />
+                  <input type="number" min={0} step="0.01" className="input-wood text-mono" {...register('purchasePrice')} />
                 </div>
                 <div>
                   <label className="label-wood flex items-center gap-1.5">
-                    <Coins size={14} className="text-sage" />
-                    {`${t('salePrice')} (DA)`}
+                    <Tag size={14} className="text-sage" />
+                    {`${t('salePrice')} — 1 ${boxName} (DA)`}
                   </label>
-                  <input type="number" min={0} step="0.01" className="input-wood" {...register('salePrice')} />
+                  <input type="number" min={0} step="0.01" className="input-wood text-mono" {...register('salePrice')} />
                 </div>
               </>
             )}
           </div>
 
+          {isDivisible && capacity > 0 && (
+            <p className="mt-3 rounded-lg bg-wood-cream/60 px-3 py-2 text-xs text-wood-medium">
+              {t('stockReadsAs')}{' '}
+              <b className="text-wood-dark">
+                {quantity} {boxName}
+                {openRemaining > 0 && ` + ${openRemaining} ${unit}`}
+              </b>{' '}
+              = <b className="text-mono text-wood-dark">{totalPieces} {unit}</b>
+            </p>
+          )}
+
           {product && (
-            <div className="mt-3 space-y-2">
-              <label className="flex cursor-pointer items-center gap-2">
-                <span className="relative inline-flex">
-                  <input type="checkbox" className="peer sr-only" {...register('hasExpiration')} />
-                  <span className="h-5 w-9 rounded-full bg-wood-light/40 transition peer-checked:bg-wood-warm" />
-                  <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4" />
-                </span>
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-wood-dark">
-                  <CalendarClock size={15} className="text-wood-warm" />
-                  {t('enableExpiration')}
-                </span>
-              </label>
+            <div className="mt-4 space-y-2">
+              <Toggle input={register('hasExpiration')} label={t('enableExpiration')} icon={<CalendarClock size={15} className="text-wood-warm" />} />
               {hasExpiration && (
                 <div className="sm:max-w-[50%]">
                   <label className="label-wood">{t('expirationDate')}</label>
@@ -468,12 +530,14 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
               )}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Barcode (optional) */}
-        <div className="rounded-xl border border-wood-light/30 bg-wood-cream/40 p-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <Input label={`${t('barcode')} (${t('optional')})`} className="font-mono" {...register('barcode')} />
+        {/* 4 — barcode (optional) */}
+        <section className="rounded-xl border border-woodborder bg-[#F8FAFD] p-4">
+          <div className="flex flex-wrap items-end gap-2.5">
+            <div className="min-w-[200px] flex-1">
+              <Input label={`${t('barcode')} (${t('optional')})`} className="font-mono" {...register('barcode')} />
+            </div>
             <Button type="button" variant="outline" onClick={() => setValue('barcode', generateEAN13())}>
               <RefreshCw size={15} />
               {t('generateBarcode')}
@@ -484,25 +548,23 @@ export const ProductModal = ({ open, onClose, product, onSaved, presetName }: Pr
             </Button>
           </div>
           {barcode ? (
-            <div className="mt-3 flex justify-center rounded-lg bg-white p-2">
+            <div className="mt-3 flex justify-center rounded-lg border border-woodborder bg-white p-2">
               <Barcode value={barcode} />
             </div>
           ) : (
-            <p className="mt-3 flex items-center gap-1.5 text-xs text-wood-medium/80">
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-wood-medium/80">
               <Info size={13} /> {t('barcodeOptionalHint')}
             </p>
           )}
-          {/* print template */}
           <div className="hidden">
             <div ref={printRef} className="print-area flex flex-col items-center p-6">
               <p className="mb-2 text-center text-lg font-bold">{watch('name')}</p>
               {barcode && <Barcode value={barcode} height={80} />}
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Creation: prices come with the first purchase. Edition: everything is editable. */}
-        <div className="flex items-start gap-2 rounded-xl border border-wood-light/30 bg-gradient-to-br from-wood-cream/60 to-white px-4 py-3 text-xs text-wood-medium">
+        <div className="flex items-start gap-2 rounded-lg border border-wood-warm/20 bg-wood-warm/5 px-3.5 py-3 text-xs text-wood-medium">
           <Info size={15} className="mt-0.5 shrink-0 text-wood-warm" />
           <span>{product ? t('editProductHint') : t('pricingLaterHint')}</span>
         </div>

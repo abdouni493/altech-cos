@@ -53,10 +53,10 @@ import {
   productionUnitCost,
 } from '@/utils/calculations'
 
-const CAT_COLORS = ['#C026D3', '#DB2777', '#9333EA', '#7C3AED', '#E879F9', '#F472B6', '#A855F7', '#EC4899', '#8B5CF6']
+const CAT_COLORS = ['#2F5BFF', '#00B8D9', '#6366F1', '#0EA5E9', '#F5A524', '#12B76A', '#14B8A6', '#F97316', '#64748B']
 
 const SummaryCard = ({ label, value, color, icon }: { label: string; value: number; color: string; icon: React.ReactNode }) => (
-  <div className="card-wood rounded-2xl p-4">
+  <div className="card-wood rounded-xl p-4">
     <div className="flex items-center justify-between">
       <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-white ${color}`}>{icon}</div>
     </div>
@@ -187,7 +187,7 @@ export const ReportsPage = () => {
         actions={report && <Button variant="gold" onClick={handlePrint}><Printer size={16} />{t('printReport')}</Button>}
       />
 
-      <div className="card-wood mb-5 flex flex-wrap items-end gap-3 rounded-2xl p-4">
+      <div className="card-wood mb-5 flex flex-wrap items-end gap-3 rounded-xl p-4">
         <div>
           <label className="label-wood">{t('from')}</label>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input-wood" />
@@ -221,24 +221,22 @@ export const ReportsPage = () => {
                 <SummaryCard label={t('totalPurchasesReport')} value={report.totalPurchases} color="bg-wood-warm" icon={<ShoppingCart size={18} />} />
                 <SummaryCard label={t('totalExpenses')} value={report.totalExpenses} color="bg-terracotta" icon={<Wallet size={18} />} />
                 <SummaryCard label={t('totalSalaries')} value={report.totalSalaries} color="bg-gold" icon={<HardHat size={18} />} />
-                <SummaryCard label={t('grossMargin')} value={report.grossMargin} color="bg-gradient-to-br from-fuchsia-500 to-pink-500" icon={<Percent size={18} />} />
-                <div className="card-wood rounded-2xl bg-wood-btn p-4 text-white">
+                <SummaryCard label={t('grossMargin')} value={report.grossMargin} color="bg-gradient-to-br from-sky-500 to-cyan-500" icon={<Percent size={18} />} />
+                <div className="card-wood rounded-xl bg-wood-btn p-4 text-white">
                   <p className="text-xs opacity-90">{t('netProfit')}</p>
                   <p className="text-mono mt-2 text-xl font-bold">{formatMoney(report.netProfit)}</p>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('unitsSold')}</p><p className="text-mono text-lg font-bold text-wood-dark">{report.unitsSold}</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('cogs')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.cogs)}</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('marginRate')}</p><p className="text-mono text-lg font-bold text-sage">{report.marginPct.toFixed(1)} %</p></div>
                 <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('avgBasket')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.periodSales.length ? report.totalSales / report.periodSales.length : 0)}</p></div>
-                <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('productionCost')}</p><p className="text-mono text-lg font-bold text-wood-dark">{formatMoney(report.prod.totalCost)}</p></div>
-                <div className="card-wood rounded-xl p-3"><p className="text-[11px] text-wood-medium">{t('realisedGain')}</p><p className={`text-mono text-lg font-bold ${report.prod.realisedGain >= 0 ? 'text-sage' : 'text-terracotta'}`}>{formatMoney(report.prod.realisedGain)}</p></div>
               </div>
             </section>
 
             {/* Caisse / treasury summary */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><Landmark size={18} className="text-wood-warm" />{t('caisse')} — {t('financialSummary')}</h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                 {[
@@ -258,7 +256,7 @@ export const ReportsPage = () => {
             </section>
 
             {/* Product sales analysis — fast & slow movers */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><BarChart3 size={18} className="text-wood-warm" />{t('salesAnalysis')}</h2>
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <div>
@@ -266,11 +264,11 @@ export const ReportsPage = () => {
                   {report.bestSellers.length > 0 && (
                     <ResponsiveContainer width="100%" height={200}>
                       <BarChart data={report.bestSellers} layout="vertical" margin={{ left: 8, right: 16 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#E879F940" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10, fill: '#8B3A9E' }} />
-                        <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 9, fill: '#8B3A9E' }} />
-                        <Tooltip formatter={(v: number) => `${v}`} contentStyle={{ borderRadius: 12, border: '1px solid #C026D340' }} />
-                        <Bar dataKey="quantity" name={t('qtySold')} fill="#C026D3" radius={[0, 4, 4, 0]} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E4E8F1" horizontal={false} />
+                        <XAxis type="number" tick={{ fontSize: 10, fill: '#56627A' }} />
+                        <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 9, fill: '#56627A' }} />
+                        <Tooltip formatter={(v: number) => `${v}`} contentStyle={{ borderRadius: 12, border: '1px solid #2F5BFF40' }} />
+                        <Bar dataKey="quantity" name={t('qtySold')} fill="#2F5BFF" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -290,71 +288,8 @@ export const ReportsPage = () => {
               </div>
             </section>
 
-            {/* Production — batches, cost and gains */}
-            <section className="card-wood rounded-2xl p-5">
-              <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark">
-                <FlaskConical size={18} className="text-violet-500" />
-                {t('productionAnalysis')}
-              </h2>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-                {[
-                  { l: t('batches'), v: `${report.prod.count}` },
-                  { l: t('producedUnits'), v: `${report.prod.producedUnits}` },
-                  { l: t('productionCost'), v: formatMoney(report.prod.totalCost) },
-                  { l: t('expectedRevenue'), v: formatMoney(report.prod.expectedRevenue) },
-                  { l: t('expectedGain'), v: formatMoney(report.prod.expectedGain) },
-                  { l: t('realisedGain'), v: formatMoney(report.prod.realisedGain) },
-                  { l: t('remainingUnits'), v: `${report.prod.remainingUnits}` },
-                ].map((x) => (
-                  <div key={x.l} className="rounded-xl bg-wood-cream/40 p-3">
-                    <p className="truncate text-[11px] text-wood-medium">{x.l}</p>
-                    <p className="text-mono text-base font-bold text-wood-dark">{x.v}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <div>
-                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('productionDetails')}</h3>
-                  <ReportTable
-                    head={[t('reference'), t('techSheet'), t('producedUnits'), t('productionCost'), t('expectedGain')]}
-                    rows={report.periodBatches.map((p) => [
-                      p.reference,
-                      p.sheetName,
-                      `${p.outputQuantity} · ${p.soldQuantity} ${t('soldUnits').toLowerCase()} · ${productionRemaining(p)} ${t('remainingUnits').toLowerCase()}`,
-                      formatMoney(p.totalCost),
-                      `${p.gain >= 0 ? '+' : ''}${formatMoney(p.gain)}`,
-                    ])}
-                  />
-                </div>
-                <div>
-                  <h3 className="mb-2 text-sm font-bold text-wood-dark">{t('componentsConsumed')}</h3>
-                  <ReportTable
-                    head={[t('productName'), t('componentQuantity'), t('total')]}
-                    rows={report.prodComponents.map((c) => [
-                      c.name,
-                      `${c.quantity} ${c.unit ?? ''}`,
-                      formatMoney(c.cost),
-                    ])}
-                  />
-                  <h3 className="mb-2 mt-4 text-sm font-bold text-wood-dark">{t('productionStock')}</h3>
-                  <ReportTable
-                    head={[t('batch'), t('remainingUnits'), t('unitCost'), t('productionValue')]}
-                    rows={report.periodBatches
-                      .filter((p) => productionRemaining(p) > 0)
-                      .map((p) => [
-                        p.outputName || p.sheetName,
-                        `${productionRemaining(p)}`,
-                        formatMoney(productionUnitCost(p)),
-                        formatMoney(round2(productionRemaining(p) * productionUnitCost(p))),
-                      ])}
-                  />
-                </div>
-              </div>
-            </section>
-
             {/* Retail — containers, open bottle and portions sold */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark">
                 <Beaker size={18} className="text-wood-warm" />
                 {t('retailProducts')}
@@ -384,24 +319,12 @@ export const ReportsPage = () => {
                       formatMoney(round2(l.quantity * l.unitPrice)),
                     ])}
                   />
-                  <h3 className="mb-2 mt-4 text-sm font-bold text-wood-dark">
-                    {t('productionStock')} — {t('sales')}
-                  </h3>
-                  <ReportTable
-                    head={[t('reference'), t('productName'), t('quantity'), t('total')]}
-                    rows={report.productionSold.map((l) => [
-                      l.reference,
-                      l.productName,
-                      `${l.quantity}`,
-                      formatMoney(round2(l.quantity * l.unitPrice)),
-                    ])}
-                  />
                 </div>
               </div>
             </section>
 
             {/* Category analysis */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-4 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><Tags size={18} className="text-wood-warm" />{t('categoryAnalysis')}</h2>
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 {report.cats.length > 0 && (
@@ -412,7 +335,7 @@ export const ReportsPage = () => {
                           <Cell key={i} fill={CAT_COLORS[i % CAT_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #C026D340' }} />
+                      <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #2F5BFF40' }} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                     </PieChart>
                   </ResponsiveContainer>
@@ -425,16 +348,16 @@ export const ReportsPage = () => {
             </section>
 
             {/* Sales detail */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><TrendingUp size={18} className="text-sage" />{t('salesDetailed')}</h2>
               {report.topProducts.length > 0 && (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={report.topProducts}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E879F940" />
-                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#8B3A9E' }} interval={0} angle={-15} textAnchor="end" height={60} />
-                    <YAxis tick={{ fontSize: 11, fill: '#8B3A9E' }} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #C026D340' }} />
-                    <Bar dataKey="quantity" name={t('quantity')} fill="#C026D3" radius={[4, 4, 0, 0]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E4E8F1" />
+                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#56627A' }} interval={0} angle={-15} textAnchor="end" height={60} />
+                    <YAxis tick={{ fontSize: 11, fill: '#56627A' }} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #2F5BFF40' }} />
+                    <Bar dataKey="quantity" name={t('quantity')} fill="#2F5BFF" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -445,13 +368,13 @@ export const ReportsPage = () => {
             </section>
 
             {/* Top clients */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><Users size={18} className="text-wood-warm" />{t('topClients')}</h2>
               <ReportTable head={['#', t('client'), t('amount')]} rows={report.topClients.map((c, i) => [`${i + 1}`, c.name, formatMoney(c.amount)])} />
             </section>
 
             {/* Purchases detail */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><ShoppingCart size={18} className="text-wood-medium" />{t('purchasesDetailed')}</h2>
               <ReportTable
                 head={[t('reference'), t('supplier'), t('date'), t('total'), t('paid'), t('remaining')]}
@@ -461,11 +384,11 @@ export const ReportsPage = () => {
 
             {/* Debts */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <section className="card-wood rounded-2xl p-5">
+              <section className="card-wood rounded-xl p-5">
                 <h2 className="mb-3 text-display text-lg font-bold text-wood-dark">{t('clientDebts')}</h2>
                 <ReportTable head={[t('client'), t('totalDebt')]} rows={report.clientDebts.map((c) => [c.name, formatMoney(c.totalDebt)])} />
               </section>
-              <section className="card-wood rounded-2xl p-5">
+              <section className="card-wood rounded-xl p-5">
                 <h2 className="mb-3 text-display text-lg font-bold text-wood-dark">{t('supplierDebts')}</h2>
                 <ReportTable head={[t('supplier'), t('totalDebt')]} rows={report.supplierDebts.map((s) => [s.name, formatMoney(s.totalDebt)])} />
               </section>
@@ -473,18 +396,18 @@ export const ReportsPage = () => {
 
             {/* Expenses + salaries */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <section className="card-wood rounded-2xl p-5">
+              <section className="card-wood rounded-xl p-5">
                 <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><Wallet size={18} className="text-terracotta" />{t('expenses')}</h2>
                 <ReportTable head={[t('name'), t('date'), t('amount')]} rows={report.periodExpenses.map((e) => [e.name, format(new Date(e.date), 'dd/MM/yyyy'), formatMoney(e.amount)])} />
               </section>
-              <section className="card-wood rounded-2xl p-5">
+              <section className="card-wood rounded-xl p-5">
                 <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><HardHat size={18} className="text-gold" />{t('totalSalaries')}</h2>
                 <ReportTable head={[t('workers'), t('period'), t('amount')]} rows={report.salaryPayments.map((p) => [p.worker, p.period, formatMoney(p.amount)])} />
               </section>
             </div>
 
             {/* Stock */}
-            <section className="card-wood rounded-2xl p-5">
+            <section className="card-wood rounded-xl p-5">
               <h2 className="mb-3 flex items-center gap-2 text-display text-lg font-bold text-wood-dark"><Boxes size={18} className="text-wood-warm" />{t('stockReport')} — {t('stockAlerts')}</h2>
               {report.lowStock.length === 0 ? (
                 <div className="py-4 text-center"><Badge tone="paid">{t('inStock')}</Badge></div>
@@ -494,7 +417,7 @@ export const ReportsPage = () => {
             </section>
           </motion.div>
         ) : (
-          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card-wood flex flex-col items-center gap-3 rounded-2xl py-20 text-center">
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card-wood flex flex-col items-center gap-3 rounded-xl py-20 text-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-wood-cream text-wood-light"><BarChart3 size={40} /></div>
             <p className="text-sm text-wood-medium">{t('selectPeriod')}</p>
           </motion.div>

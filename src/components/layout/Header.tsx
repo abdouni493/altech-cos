@@ -11,34 +11,37 @@ import {
   AlertTriangle,
   CalendarClock,
   CalendarX,
-  Cloud,
-  CloudOff,
-  RefreshCw,
+  HardDrive,
+  Loader2,
+  CircleCheck,
+  CircleAlert,
+  Keyboard,
 } from 'lucide-react'
 import { useTranslation } from '@/i18n/useTranslation'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useProductStore } from '@/store/useProductStore'
 import { NAV_ITEMS } from './navConfig'
+import { flushDatabase, useDbStatus } from '@/lib/database'
 import { initials, expiryInfo, type ExpiryInfo } from '@/utils/helpers'
 import type { Product } from '@/types'
 
 interface HeaderProps {
   sidebarOpen: boolean
   onToggleSidebar: () => void
+  onShowShortcuts: () => void
 }
 
-export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
+export const Header = ({ sidebarOpen, onToggleSidebar, onShowShortcuts }: HeaderProps) => {
   const { t, toggleLang, lang } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
   const currentUser = useAuthStore((s) => s.currentUser)
   const logout = useAuthStore((s) => s.logout)
-  const online = useAuthStore((s) => s.online)
-  const refresh = useAuthStore((s) => s.refresh)
+  const dbStatus = useDbStatus((s) => s.status)
+  const dbBackend = useDbStatus((s) => s.backend)
   const products = useProductStore((s) => s.products)
   const [notifOpen, setNotifOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [resyncing, setResyncing] = useState(false)
 
   const lowStock = useMemo(() => products.filter((p) => p.quantity <= p.minQuantity), [products])
 
@@ -58,25 +61,23 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
   const crumb = current ? t(current.labelKey) : ''
 
   const handleLogout = async () => {
-    await logout()
+    await flushDatabase()
+    logout()
     navigate('/login')
   }
 
-  /** Manual pull from Supabase — useful when several devices share the shop. */
-  const handleResync = async () => {
-    setResyncing(true)
-    try {
-      await refresh()
-      toast.success(t('dataRestored'))
-    } catch {
-      toast.error(t('cloudOffline'))
-    } finally {
-      setResyncing(false)
-    }
+  /** Forces the pending changes to disk — the status chip also retries on its own. */
+  const handleSaveNow = async () => {
+    const ok = await flushDatabase()
+    if (ok) toast.success(t('dbSaved'))
+    else toast.error(t('dbError'))
   }
 
+  const statusLabel =
+    dbStatus === 'error' ? t('dbError') : dbStatus === 'saving' ? t('dbSaving') : t('dbSaved')
+
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-wood-light/20 bg-wood-white/80 px-6 py-3 backdrop-blur-md">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-woodborder bg-white/85 px-3 py-2.5 backdrop-blur-md sm:px-5">
       {/* Menu toggle + breadcrumb */}
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <motion.button
@@ -92,45 +93,55 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
           aria-label={sidebarOpen ? t('closeMenu') : t('openMenu')}
           aria-expanded={sidebarOpen}
           title={t('menu')}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-wood-light/40 bg-white/70 px-2.5 py-2 text-wood-medium transition hover:bg-wood-cream hover:text-wood-dark"
+          className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-woodborder bg-white px-3 text-wood-dark shadow-wood transition hover:border-wood-warm/40 hover:text-wood-warm"
         >
           <Menu size={18} />
           <span className="hidden text-xs font-semibold sm:inline">{t('menu')}</span>
         </motion.button>
 
-        <Link to="/dashboard" className="truncate text-wood-medium/70 hover:text-wood-warm">
+        <Link to="/dashboard" className="hidden truncate font-semibold text-wood-medium hover:text-wood-warm sm:inline">
           {t('appName')}
         </Link>
         {crumb && (
           <>
-            <ChevronRight size={14} className="text-wood-medium/40 rtl:rotate-180" />
-            <span className="font-semibold text-wood-dark">{crumb}</span>
+            <ChevronRight size={14} className="hidden text-wood-medium/40 sm:inline rtl:rotate-180" />
+            <span className="truncate font-bold text-wood-dark">{crumb}</span>
           </>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Cloud status + manual resync */}
+        {/* Local database status — click to save right away */}
         <motion.button
-          whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={handleResync}
-          disabled={resyncing}
-          title={online ? t('cloudConnected') : t('cloudOffline')}
-          className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-2 text-xs font-semibold transition ${
-            online
-              ? 'border-sage/40 bg-sage/10 text-sage hover:bg-sage/20'
-              : 'border-terracotta/40 bg-terracotta/10 text-terracotta hover:bg-terracotta/20'
+          onClick={handleSaveNow}
+          title={`${dbBackend === 'browser' ? t('dbBrowserMode') : t('dbServerMode')} — ${statusLabel}`}
+          className={`flex h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+            dbStatus === 'error'
+              ? 'animate-pulse-glow border-terracotta/40 bg-terracotta/10 text-terracotta'
+              : 'border-sage/30 bg-sage/10 text-[#067647] hover:bg-sage/15'
           }`}
         >
-          {resyncing ? (
-            <RefreshCw size={15} className="animate-spin" />
-          ) : online ? (
-            <Cloud size={15} />
+          {dbStatus === 'saving' ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : dbStatus === 'error' ? (
+            <CircleAlert size={15} />
+          ) : dbStatus === 'saved' ? (
+            <CircleCheck size={15} />
           ) : (
-            <CloudOff size={15} />
+            <HardDrive size={15} />
           )}
-          <span className="hidden lg:inline">{online ? t('cloudConnected') : t('cloudOffline')}</span>
+          <span className="hidden lg:inline">{dbStatus === 'idle' ? t('localDatabase') : statusLabel}</span>
+        </motion.button>
+
+        {/* Keyboard shortcuts */}
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={onShowShortcuts}
+          title={`${t('keyboardShortcuts')} (F1)`}
+          className="hidden h-10 w-10 items-center justify-center rounded-lg border border-woodborder bg-white text-wood-medium shadow-wood transition hover:border-wood-warm/40 hover:text-wood-warm md:flex"
+        >
+          <Keyboard size={17} />
         </motion.button>
 
         {/* Language */}
@@ -138,7 +149,7 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={toggleLang}
-          className="flex items-center gap-1.5 rounded-xl border border-wood-light/40 bg-white/70 px-3 py-2 text-xs font-semibold text-wood-medium transition hover:bg-wood-cream"
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-woodborder bg-white px-3 text-xs font-bold text-wood-medium shadow-wood transition hover:border-wood-warm/40 hover:text-wood-warm"
         >
           <Globe size={16} />
           {lang === 'fr' ? 'FR' : 'ع'}
@@ -153,11 +164,11 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
               setNotifOpen((v) => !v)
               setMenuOpen(false)
             }}
-            className="relative rounded-xl border border-wood-light/40 bg-white/70 p-2 text-wood-medium transition hover:bg-wood-cream"
+            className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-woodborder bg-white text-wood-medium shadow-wood transition hover:border-wood-warm/40 hover:text-wood-warm"
           >
             <Bell size={18} />
             {alertCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-terracotta px-1 text-[10px] font-bold text-white">
+              <span className="absolute -end-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-terracotta px-1 text-[10px] font-bold text-white ring-2 ring-white">
                 {alertCount}
               </span>
             )}
@@ -168,7 +179,7 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                className="card-wood absolute end-0 mt-2 w-80 rounded-2xl p-3 shadow-wood-lg"
+                className="card-wood absolute end-0 mt-2 w-[min(20rem,calc(100vw-1.5rem))] rounded-xl p-3 shadow-wood-lg"
               >
                 {alertCount === 0 ? (
                   <p className="px-1 py-3 text-center text-xs text-wood-medium">{t('noData')}</p>
@@ -209,10 +220,10 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
                                 {isExpired ? (
                                   <CalendarX size={16} className="shrink-0 text-terracotta" />
                                 ) : (
-                                  <CalendarClock size={16} className="shrink-0 text-[#8a6420]" />
+                                  <CalendarClock size={16} className="shrink-0 text-[#B45309]" />
                                 )}
                                 <span className="flex-1 truncate text-xs font-medium text-wood-dark">{product.name}</span>
-                                <span className={`text-xs font-bold ${isExpired ? 'text-terracotta' : 'text-[#8a6420]'}`}>
+                                <span className={`text-xs font-bold ${isExpired ? 'text-terracotta' : 'text-[#B45309]'}`}>
                                   {info.days === 0
                                     ? t('expiresToday')
                                     : isExpired
@@ -240,12 +251,12 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
               setMenuOpen((v) => !v)
               setNotifOpen(false)
             }}
-            className="flex items-center gap-2 rounded-xl border border-wood-light/40 bg-white/70 py-1.5 pe-3 ps-1.5 transition hover:bg-wood-cream"
+            className="flex h-10 items-center gap-2 rounded-lg border border-woodborder bg-white pe-1 ps-1 shadow-wood transition hover:border-wood-warm/40 sm:pe-3"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-wood-btn text-xs font-bold text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-rose-shine text-xs font-bold text-white">
               {initials(currentUser?.fullName ?? 'U')}
             </div>
-            <div className="text-start">
+            <div className="hidden text-start sm:block">
               <p className="text-xs font-bold leading-none text-wood-dark">{currentUser?.fullName}</p>
               <p className="mt-0.5 text-[10px] text-wood-medium">{currentUser?.role}</p>
             </div>
@@ -256,7 +267,7 @@ export const Header = ({ sidebarOpen, onToggleSidebar }: HeaderProps) => {
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                className="card-wood absolute end-0 mt-2 w-48 rounded-2xl p-2 shadow-wood-lg"
+                className="card-wood absolute end-0 mt-2 w-48 rounded-xl p-2 shadow-wood-lg"
               >
                 <Link
                   to="/settings"

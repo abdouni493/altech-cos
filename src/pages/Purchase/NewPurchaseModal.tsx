@@ -305,7 +305,7 @@ export const NewPurchaseModal = ({ open, onClose, editing }: NewPurchaseModalPro
                     </div>
 
                     {/* Retail selling — a 100 ml bottle sold by 10 ml portions */}
-                    <div className="mt-2 rounded-lg border border-fuchsia-200/60 bg-fuchsia-50/40 p-2.5">
+                    <div className="mt-2 rounded-lg border border-sky-200/60 bg-sky-50/40 p-2.5">
                       <label className="flex cursor-pointer items-center gap-2">
                         <span className="relative inline-flex">
                           <input

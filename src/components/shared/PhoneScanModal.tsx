@@ -61,7 +61,7 @@ export const PhoneScanModal = ({ open, onClose, phone, onLocalBarcode, feed }: P
       width: 320,
       margin: 1,
       errorCorrectionLevel: 'M',
-      color: { dark: '#3B0764', light: '#FFFFFFFF' },
+      color: { dark: '#0B1324', light: '#FFFFFFFF' },
     })
       .then(setQr)
       .catch(() => setQr(''))

@@ -43,7 +43,7 @@ export const StatCard = ({
   index = 0,
   suffix,
   decimals,
-  accent = 'from-wood-medium to-wood-light',
+  accent = 'from-wood-warm to-aqua',
   hint,
 }: StatCardProps) => (
   <motion.div
@@ -51,17 +51,17 @@ export const StatCard = ({
     initial="initial"
     animate="animate"
     custom={index}
-    whileHover={{ y: -4 }}
-    className="card-wood relative overflow-hidden rounded-2xl p-5"
+    whileHover={{ y: -3 }}
+    className="card-wood card-hover relative overflow-hidden rounded-xl p-4 sm:p-5"
   >
-    <div className={clsx('absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br opacity-10', accent)} />
-    <div className="flex items-start justify-between">
-      <div className={clsx('flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood', accent)}>
+    <div className={clsx('absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r', accent)} />
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-[13px] font-semibold text-wood-medium">{label}</p>
+      <div className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-wood', accent)}>
         {icon}
       </div>
     </div>
-    <p className="mt-4 text-sm font-medium text-wood-medium">{label}</p>
-    <p className="text-mono mt-1 text-2xl font-bold text-wood-dark">
+    <p className="text-mono mt-2 text-xl font-bold tracking-tight text-wood-dark sm:text-2xl">
       <AnimatedNumber value={value} decimals={decimals} />
       {suffix && <span className="ml-1 text-base font-medium text-wood-medium">{suffix}</span>}
     </p>

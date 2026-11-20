@@ -9,26 +9,27 @@ import {
   Upload,
   Check,
   Image as ImageIcon,
-  Cloud,
-  CloudUpload,
-  CloudDownload,
+  HardDrive,
+  FolderOpen,
+  Wifi,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
 import { useSettingsStore } from '@/store/useSettingsStore'
-import { useAuthStore } from '@/store/useAuthStore'
+import { useAuthStore, authErrorMessage } from '@/store/useAuthStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { cloudErrorMessage } from '@/lib/supabase'
+import { useDbStatus } from '@/lib/database'
 import { exportData, importData } from '@/utils/export'
 import { fadeUp, staggerContainer } from '@/utils/animations'
 
 const Section = ({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) => (
-  <motion.div variants={fadeUp} className="card-wood rounded-2xl p-5">
-    <div className="mb-4 flex items-center gap-2">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-wood-btn text-white">{icon}</div>
-      <h3 className="text-display text-lg font-bold text-wood-dark">{title}</h3>
+  <motion.div variants={fadeUp} className="card-wood rounded-xl p-5">
+    <div className="mb-4 flex items-center gap-3 border-b border-woodborder pb-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-wood-warm/10 text-wood-warm">{icon}</div>
+      <h3 className="text-display text-base font-bold text-wood-dark">{title}</h3>
     </div>
     {children}
   </motion.div>
@@ -40,7 +41,8 @@ export const SettingsPage = () => {
   const { currentUser, updateAccount } = useAuthStore()
   const fileRef = useRef<HTMLInputElement>(null)
   const logoRef = useRef<HTMLInputElement>(null)
-  const [cloudBusy, setCloudBusy] = useState<'push' | 'pull' | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { backend, dataDir, lanUrls, lastSavedAt } = useDbStatus()
 
   const [store, setStore] = useState(settings)
   const [account, setAccount] = useState({
@@ -50,7 +52,7 @@ export const SettingsPage = () => {
     password: currentUser?.password ?? '',
   })
 
-  // the forms always mirror what Supabase currently holds
+  // the forms always mirror what the database currently holds
   useEffect(() => setStore(settings), [settings])
   useEffect(() => {
     setAccount({
@@ -70,7 +72,7 @@ export const SettingsPage = () => {
       await updateAccount(account)
       toast.success(t('saved'))
     } catch (e) {
-      toast.error(cloudErrorMessage(e))
+      toast.error(authErrorMessage(e))
     }
   }
 
@@ -87,44 +89,19 @@ export const SettingsPage = () => {
     reader.readAsDataURL(file)
   }
 
-  const cloudPush = async () => {
-    setCloudBusy('push')
-    try {
-      const { pushEverything } = await import('@/lib/sync')
-      await pushEverything()
-      toast.success(t('syncDone'))
-    } catch {
-      toast.error(t('cloudOffline'))
-    } finally {
-      setCloudBusy(null)
-    }
-  }
-
-  const cloudPull = async () => {
-    setCloudBusy('pull')
-    try {
-      const { syncFromCloud } = await import('@/lib/sync')
-      await syncFromCloud()
-      toast.success(t('syncDone'))
-    } catch {
-      toast.error(t('cloudOffline'))
-    } finally {
-      setCloudBusy(null)
-    }
-  }
-
   const onRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setCloudBusy('pull')
+    setBusy(true)
     try {
-      // the file is written into Supabase, then the screens reload from it
+      // the local database is replaced (a copy of the previous state is kept),
+      // then every screen reloads from it
       await importData(file)
       toast.success(t('dataRestored'))
     } catch (err) {
-      toast.error(cloudErrorMessage(err))
+      toast.error(authErrorMessage(err))
     } finally {
-      setCloudBusy(null)
+      setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
@@ -195,7 +172,7 @@ export const SettingsPage = () => {
                     await exportData()
                     toast.success(t('saved'))
                   } catch (err) {
-                    toast.error(cloudErrorMessage(err))
+                    toast.error(authErrorMessage(err))
                   }
                 }}
               >
@@ -207,25 +184,51 @@ export const SettingsPage = () => {
               <p className="font-semibold text-wood-dark">{t('restore')}</p>
               <p className="mb-3 text-xs text-wood-medium">{t('restoreHint')}</p>
               <input ref={fileRef} type="file" accept="application/json" onChange={onRestore} className="hidden" />
-              <Button variant="gold" onClick={() => fileRef.current?.click()}><Upload size={16} />{t('restore')}</Button>
+              <Button variant="gold" disabled={busy} onClick={() => fileRef.current?.click()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}{t('restore')}</Button>
             </div>
           </div>
         </Section>
 
-        {/* Cloud */}
+        {/* Local database */}
         <div className="lg:col-span-2">
-          <Section title={t('cloudSync')} icon={<Cloud size={20} />}>
-            <p className="mb-3 text-xs text-wood-medium">{t('cloudSyncHint')}</p>
-            <div className="flex flex-wrap gap-3">
-              <Button variant="sage" onClick={cloudPush} disabled={cloudBusy !== null}>
-                {cloudBusy === 'push' ? <Loader2 size={16} className="animate-spin" /> : <CloudUpload size={16} />}
-                {t('pushToCloud')}
-              </Button>
-              <Button variant="outline" onClick={cloudPull} disabled={cloudBusy !== null}>
-                {cloudBusy === 'pull' ? <Loader2 size={16} className="animate-spin" /> : <CloudDownload size={16} />}
-                {t('pullFromCloud')}
-              </Button>
+          <Section title={t('localDatabase')} icon={<HardDrive size={20} />}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-woodborder bg-wood-cream/40 p-3.5">
+                <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wood-medium">
+                  <ShieldCheck size={14} className="text-sage" />
+                  {t('storageMode')}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-wood-dark">
+                  {backend === 'browser' ? t('dbBrowserMode') : t('dbServerMode')}
+                </p>
+                <p className="mt-0.5 text-xs text-wood-medium">
+                  {lastSavedAt ? `${t('dbSaved')} · ${new Date(lastSavedAt).toLocaleTimeString()}` : t('offlineMode')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-woodborder bg-wood-cream/40 p-3.5">
+                <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wood-medium">
+                  <FolderOpen size={14} className="text-wood-warm" />
+                  {t('dbFolder')}
+                </p>
+                <p className="text-mono mt-1 break-all text-xs text-wood-dark">{dataDir || '—'}</p>
+                <p className="mt-0.5 text-xs text-wood-medium">{t('dbFolderHint')}</p>
+              </div>
+              <div className="rounded-lg border border-woodborder bg-wood-cream/40 p-3.5">
+                <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wood-medium">
+                  <Wifi size={14} className="text-aqua" />
+                  {t('networkAddress')}
+                </p>
+                {lanUrls.length ? (
+                  lanUrls.map((u) => (
+                    <p key={u} className="text-mono mt-1 text-xs text-wood-dark">{u}</p>
+                  ))
+                ) : (
+                  <p className="mt-1 text-xs text-wood-dark">—</p>
+                )}
+                <p className="mt-0.5 text-xs text-wood-medium">{t('networkAddressHint')}</p>
+              </div>
             </div>
+            <p className="mt-3 text-xs text-wood-medium">{t('localDatabaseHint')}</p>
           </Section>
         </div>
       </motion.div>

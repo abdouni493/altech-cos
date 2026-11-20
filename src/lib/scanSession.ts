@@ -1,6 +1,14 @@
-import { supabase } from './supabase'
+import { useDbStatus } from './database'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// ============================================================================
+// Phone ⇄ POS scanner, relayed by the local Altech POS server.
+//
+// The POS opens a session and shows a QR code; the phone opens /scan/<id> on
+// this PC through the shop Wi-Fi and posts every barcode it films; the POS
+// pulls them back every second. No internet connection is involved.
+// ============================================================================
 
 export interface ScanSession {
   id: string
@@ -21,18 +29,24 @@ export interface PushScanResult {
   product?: { id: string; name: string; salePrice: number; quantity: number } | null
 }
 
-const SCAN_BASE_KEY = 'cosmetics-scan-base'
+const SCAN_BASE_KEY = 'altech-scan-base'
+
+const isLocalHost = (host: string) => /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(host)
 
 /**
- * Address the phone must open. Defaults to the address the cash register is
- * itself served from; when the app runs on `localhost` the phone cannot reach
- * it, so the cashier can store the PC's LAN address (or a deployed URL) once.
+ * Address the phone must open. A manual override wins; otherwise, when the
+ * POS itself runs on `localhost`, the PC's network address reported by the
+ * local server is used, since the phone cannot reach "localhost".
  */
 export const getScanBaseUrl = (): string => {
   const override = localStorage.getItem(SCAN_BASE_KEY)
   if (override) return override.replace(/\/+$/, '')
   const env = import.meta.env.VITE_SCAN_BASE_URL as string | undefined
   if (env) return env.replace(/\/+$/, '')
+  if (isLocalHost(window.location.hostname)) {
+    const lan = useDbStatus.getState().lanUrls[0]
+    if (lan) return lan
+  }
   return window.location.origin
 }
 
@@ -42,10 +56,19 @@ export const setScanBaseUrl = (url: string): void => {
   else localStorage.removeItem(SCAN_BASE_KEY)
 }
 
-export const isLocalOnlyOrigin = (): boolean =>
-  /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(new URL(getScanBaseUrl()).hostname)
+export const isLocalOnlyOrigin = (): boolean => isLocalHost(new URL(getScanBaseUrl()).hostname)
 
 export const scanUrlFor = (sessionId: string): string => `${getScanBaseUrl()}/scan/${sessionId}`
+
+const call = async (url: string, init?: RequestInit): Promise<any> => {
+  const res = await fetch(url, {
+    cache: 'no-store',
+    ...init,
+    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
 
 // ----------------------------------------------------------------------------
 // Cash register side
@@ -53,91 +76,57 @@ export const scanUrlFor = (sessionId: string): string => `${getScanBaseUrl()}/sc
 
 /** POS → "Scanner avec mon téléphone": opens the pairing session. */
 export const openScanSession = async (label = 'POS'): Promise<ScanSession> => {
-  const { data, error } = await supabase.rpc('open_scan_session', { p_label: label })
-  if (error) throw error
-  return { id: (data as any).id, expiresAt: (data as any).expires_at }
+  const data = await call('/api/scan/sessions', { method: 'POST', body: JSON.stringify({ label }) })
+  return { id: data.id, expiresAt: data.expiresAt }
 }
 
 export const closeScanSession = async (sessionId: string): Promise<void> => {
-  await supabase.rpc('close_scan_session', { p_session_id: sessionId })
+  await call(`/api/scan/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
-/**
- * Streams every barcode filmed by the paired phone.
- *
- * Uses Supabase Realtime and *also* polls every 1.5 s, so the register keeps
- * receiving scans on shop networks where websockets are blocked. Each event id
- * is delivered once.
- */
+/** Streams every barcode filmed by the paired phone. Each event is delivered once. */
 export const subscribeScans = (
   sessionId: string,
   onBarcode: (barcode: string, eventId: number) => void,
 ): (() => void) => {
-  const seen = new Set<number>()
   let lastId = 0
   let stopped = false
-
-  const deliver = (id: number, barcode: string) => {
-    if (stopped || seen.has(id)) return
-    seen.add(id)
-    if (id > lastId) lastId = id
-    onBarcode(barcode, id)
-  }
-
-  const channel = supabase
-    .channel(`scan-${sessionId}`)
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'scan_events', filter: `session_id=eq.${sessionId}` },
-      (payload) => {
-        const row = payload.new as { id: number; barcode: string }
-        deliver(Number(row.id), row.barcode)
-      },
-    )
-    .subscribe()
 
   const poll = async () => {
     if (stopped) return
     try {
-      const { data, error } = await supabase.rpc('pull_scans', {
-        p_session_id: sessionId,
-        p_after: lastId,
-      })
-      if (!error && Array.isArray(data)) {
-        data.forEach((row: any) => deliver(Number(row.id), row.barcode))
-      }
+      const events = await call(`/api/scan/sessions/${sessionId}/scans?after=${lastId}`)
+      if (Array.isArray(events))
+        events.forEach((e: any) => {
+          const id = Number(e.id)
+          if (stopped || id <= lastId) return
+          lastId = id
+          onBarcode(String(e.barcode), id)
+        })
     } catch {
-      /* offline tick — retry on the next interval */
+      /* server busy — retry on the next tick */
     }
   }
 
-  poll()
-  const timer = window.setInterval(poll, 1500)
-
+  void poll()
+  const timer = window.setInterval(poll, 1000)
   return () => {
     stopped = true
     window.clearInterval(timer)
-    supabase.removeChannel(channel)
   }
 }
 
 // ----------------------------------------------------------------------------
-// Phone side (anonymous)
+// Phone side (no account needed)
 // ----------------------------------------------------------------------------
 
-export const fetchScanSessionInfo = async (sessionId: string): Promise<ScanSessionInfo> => {
-  const { data, error } = await supabase.rpc('scan_session_info', { p_session_id: sessionId })
-  if (error) throw error
-  const d = data as any
-  return { valid: !!d?.valid, label: d?.label, shop: d?.shop, expiresAt: d?.expires_at }
-}
+export const fetchScanSessionInfo = (sessionId: string): Promise<ScanSessionInfo> =>
+  call(`/api/scan/sessions/${sessionId}`)
 
 export const pushScan = async (sessionId: string, barcode: string): Promise<PushScanResult> => {
-  const { data, error } = await supabase.rpc('push_scan', {
-    p_session_id: sessionId,
-    p_barcode: barcode,
+  const d = await call(`/api/scan/sessions/${sessionId}/scans`, {
+    method: 'POST',
+    body: JSON.stringify({ barcode }),
   })
-  if (error) throw error
-  const d = data as any
   return { ok: !!d?.ok, found: !!d?.found, reason: d?.reason, product: d?.product ?? null }
 }

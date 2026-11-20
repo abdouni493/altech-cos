@@ -1,15 +1,16 @@
 import type { Variants } from 'framer-motion'
 
 export const pageVariants: Variants = {
-  initial: { opacity: 0, x: -30, scale: 0.98 },
-  animate: { opacity: 1, x: 0, scale: 1, transition: { duration: 0.4, ease: 'easeOut' } },
-  exit: { opacity: 0, x: 30, scale: 0.98, transition: { duration: 0.3 } },
+  // No `filter` here: a filtered ancestor traps the `position: fixed` modals of the page.
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.22, 1, 0.36, 1] } },
+  exit: { opacity: 0, y: -6, transition: { duration: 0.15 } },
 }
 
 export const modalVariants: Variants = {
-  initial: { opacity: 0, scale: 0.85, y: 20 },
-  animate: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 25, stiffness: 300 } },
-  exit: { opacity: 0, scale: 0.85, y: 20, transition: { duration: 0.2 } },
+  initial: { opacity: 0, scale: 0.96, y: 24 },
+  animate: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 30, stiffness: 380 } },
+  exit: { opacity: 0, scale: 0.97, y: 16, transition: { duration: 0.15 } },
 }
 
 export const overlayVariants: Variants = {
@@ -19,11 +20,11 @@ export const overlayVariants: Variants = {
 }
 
 export const cardVariants: Variants = {
-  initial: { opacity: 0, y: 20 },
+  initial: { opacity: 0, y: 14 },
   animate: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: (i ?? 0) * 0.06, duration: 0.4, ease: 'easeOut' },
+    transition: { delay: Math.min(i ?? 0, 12) * 0.035, duration: 0.3, ease: [0.22, 1, 0.36, 1] },
   }),
 }
 

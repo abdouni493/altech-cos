@@ -12,10 +12,12 @@ dist-ssr/
 vite.config.js
 vite.config.d.ts
 
+# Local database (shop data, backups, server logs) — never committed
+data/
+
 # Environment variables
 .env
 .env.*
-!.env.example
 
 # Editor / OS
 .DS_Store

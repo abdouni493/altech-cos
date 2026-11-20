@@ -46,7 +46,13 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement>, FieldProp
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, className, id, children, ...props }, ref) => (
+  ({ label, error, className, id, children, ...props }, ref) =>
+    // A bare filter select (no label) sizes itself, so a row of filters stays on one line.
+    !label && !error ? (
+      <select ref={ref} id={id} className={clsx('input-wood w-auto min-w-[150px] cursor-pointer', className)} {...props}>
+        {children}
+      </select>
+    ) : (
     <div className="w-full">
       {label && (
         <label htmlFor={id} className="label-wood">
@@ -58,6 +64,6 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       </select>
       {error && <p className="mt-1 text-xs text-terracotta">{error}</p>}
     </div>
-  ),
+    ),
 )
 Select.displayName = 'Select'

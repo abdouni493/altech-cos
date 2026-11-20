@@ -1,22 +1,23 @@
-import { fetchSnapshot } from '@/lib/cloud'
-import { restoreSnapshot } from '@/lib/sync'
+import { flushDatabase, readSnapshot, replaceDatabase } from '@/lib/database'
 
 /**
- * Backup / restore.
+ * Backup / restore of the local database.
  *
- * Both directions talk to Supabase: the export is a fresh dump of the database
- * (never of the browser), and the import writes the file back into Supabase
- * before the screens are reloaded from it.
+ * The export is a JSON file of the whole shop (logins included — passwords are
+ * only stored as salted hashes). The import replaces the local database; the
+ * server keeps the previous state in data/backups/ first. Backups made by the
+ * former cloud version of the app are accepted too.
  */
 
 const FILE_MARKER = '__cosmetics'
 
 export const exportData = async (): Promise<void> => {
-  const snapshot = await fetchSnapshot()
+  await flushDatabase()
+  const snapshot = readSnapshot()
   const payload = {
     [FILE_MARKER]: true,
-    version: 2,
-    source: 'supabase',
+    version: 3,
+    source: 'altech-pos-local',
     exportedAt: new Date().toISOString(),
     data: snapshot,
   }
@@ -24,7 +25,7 @@ export const exportData = async (): Promise<void> => {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `belle-cosmetiques-backup-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = `altech-pos-backup-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -36,7 +37,7 @@ const normalise = (parsed: any) => {
   const data = parsed?.data ?? parsed
   if (!data) return null
 
-  // v2 — a Supabase snapshot
+  // v2 / v3 — a snapshot of the cloud version or of this local database
   if (Array.isArray(data.products) || Array.isArray(data.sales)) {
     return {
       products: data.products ?? [],
@@ -54,6 +55,7 @@ const normalise = (parsed: any) => {
       expenses: data.expenses ?? [],
       caisse: data.caisse ?? [],
       settings: data.settings ?? undefined,
+      users: data.users ?? undefined,
     }
   }
 
@@ -87,7 +89,7 @@ export const importData = (file: File): Promise<void> =>
       try {
         const snapshot = normalise(JSON.parse(reader.result as string))
         if (!snapshot) throw new Error('INVALID_BACKUP')
-        await restoreSnapshot(snapshot)
+        await replaceDatabase(snapshot)
         resolve()
       } catch (e) {
         reject(e)

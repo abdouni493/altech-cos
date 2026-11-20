@@ -74,13 +74,57 @@ export const restoreContent = (
 ): { quantity: number; openRemaining: number } =>
   split(totalContent(p) + Math.max(0, amount), capacityOf(p))
 
-/** "2 × 100 ml + 45 ml" — how the shelf actually looks. */
+/** Name of a whole article — "boîte", "paquet", "flacon"… ("unité" when not set). */
+export const stockUnitName = (p: Pick<Product, 'stockUnit'>, plural = false): string => {
+  const name = (p.stockUnit ?? '').trim()
+  if (!name) return plural ? 'unités' : 'unité'
+  return plural && !/[sxz]$/i.test(name) ? `${name}s` : name
+}
+
+/** "12 boîtes" / "1 paquet" — a count with its stock unit. */
+export const stockCountLabel = (p: Pick<Product, 'stockUnit'>, count: number): string =>
+  `${count} ${stockUnitName(p, Math.abs(count) > 1)}`
+
+/**
+ * What is on the shelf, in the words of the counter: sealed boxes, pieces left
+ * in the opened box, total pieces and how full the opened box is (0 → 1).
+ */
+export const shelfBreakdown = (p: Product) => {
+  const capacity = capacityOf(p)
+  const loose = round2(p.openRemaining ?? 0)
+  return {
+    boxes: p.quantity,
+    loose,
+    total: totalContent(p),
+    capacity,
+    unit: p.unit ?? '',
+    openRatio: capacity > 0 ? Math.min(1, loose / capacity) : 0,
+  }
+}
+
+/** "12 boîtes + 7 pièces" — how the shelf actually looks. */
 export const contentLabel = (p: Product): string => {
-  if (!isDivisible(p)) return `${p.quantity}`
-  const unit = p.unit ?? ''
-  const open = round2(p.openRemaining ?? 0)
-  const sealed = `${p.quantity} × ${capacityOf(p)} ${unit}`.trim()
-  return open > 0 ? `${sealed} + ${open} ${unit}`.trim() : sealed
+  if (!isDivisible(p)) return stockCountLabel(p, p.quantity)
+  const { boxes, loose, unit } = shelfBreakdown(p)
+  const sealed = stockCountLabel(p, boxes)
+  return loose > 0 ? `${sealed} + ${loose} ${unit}`.trim() : sealed
+}
+
+/** Splits an amount of content into whole boxes + remainder: 47 pcs → 2 × 20 + 7. */
+export const splitAmount = (p: Product, amount: number): { boxes: number; rest: number } => {
+  const cap = capacityOf(p)
+  if (cap <= 0) return { boxes: 0, rest: amount }
+  const boxes = Math.floor(round3(amount) / cap)
+  return { boxes, rest: round3(amount - boxes * cap) }
+}
+
+/** Price of a whole box sold piece by piece — to compare with the box price. */
+export const fullBoxRetailValue = (p: Product): number => round2(capacityOf(p) * contentUnitPrice(p))
+
+/** Opens one sealed box at the counter: its content becomes loose pieces. */
+export const openOneBox = (p: Product): { quantity: number; openRemaining: number } | null => {
+  if (!isDivisible(p) || p.quantity <= 0 || (p.openRemaining ?? 0) > 0) return null
+  return { quantity: p.quantity - 1, openRemaining: capacityOf(p) }
 }
 
 /** Cost of one whole unit, or of one content unit for a `byContent` usage. */

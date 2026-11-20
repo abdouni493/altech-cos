@@ -51,10 +51,10 @@ import { fadeUp, staggerContainer } from '@/utils/animations'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const PIE_COLORS = ['#C026D3', '#DB2777', '#9333EA', '#E879F9', '#F472B6']
+const PIE_COLORS = ['#2F5BFF', '#00B8D9', '#6366F1', '#F5A524', '#12B76A']
 
 const Panel = ({ title, icon, children, className = '' }: { title: string; icon?: React.ReactNode; children: React.ReactNode; className?: string }) => (
-  <motion.div variants={fadeUp} className={`card-wood rounded-2xl p-5 ${className}`}>
+  <motion.div variants={fadeUp} className={`card-wood rounded-xl p-5 ${className}`}>
     <div className="mb-4 flex items-center gap-2">
       {icon}
       <h3 className="text-display text-lg font-bold text-wood-dark">{title}</h3>
@@ -122,7 +122,7 @@ export const Dashboard = () => {
   const salaryDue = workers.filter((w) => w.hasSalary && w.active).reduce((s, w) => s + (w.salaryType === 'monthly' ? w.salaryAmount : w.salaryAmount * 26), 0)
 
   const kpis = [
-    { icon: <TrendingUp size={22} />, label: t('revenueMonth'), value: stats.revenueMonth, suffix: 'DA', decimals: true, accent: 'from-sage to-green-600', hint: <>{t('today')}: {formatMoney(stats.revenueToday)}</> },
+    { icon: <TrendingUp size={22} />, label: t('revenueMonth'), value: stats.revenueMonth, suffix: 'DA', decimals: true, accent: 'from-sage to-emerald-500', hint: <>{t('today')}: {formatMoney(stats.revenueToday)}</> },
     {
       icon: <Boxes size={22} />,
       label: t('productsInStock'),
@@ -137,7 +137,7 @@ export const Dashboard = () => {
     },
     { icon: <ShoppingCart size={22} />, label: t('purchasesMonth'), value: stats.purchasesMonth, suffix: 'DA', decimals: true, accent: 'from-wood-warm to-gold' },
     { icon: <Users size={22} />, label: t('activeClients'), value: clients.length, accent: 'from-wood-light to-wood-blonde' },
-    { icon: <Wallet size={22} />, label: t('expensesMonth'), value: stats.expensesMonth, suffix: 'DA', decimals: true, accent: 'from-terracotta to-red-600' },
+    { icon: <Wallet size={22} />, label: t('expensesMonth'), value: stats.expensesMonth, suffix: 'DA', decimals: true, accent: 'from-terracotta to-rose-600' },
     { icon: <Coins size={22} />, label: t('netProfit'), value: stats.netProfit, suffix: 'DA', decimals: true, accent: 'from-gold to-gold-light' },
   ]
 
@@ -176,7 +176,7 @@ export const Dashboard = () => {
             )}
           </Panel>
 
-          <Panel title={t('expiringSoonProducts')} icon={<CalendarClock size={18} className="text-[#8a6420]" />}>
+          <Panel title={t('expiringSoonProducts')} icon={<CalendarClock size={18} className="text-[#B45309]" />}>
             {expiryAlerts.soon.length === 0 ? (
               <p className="py-6 text-center text-sm text-wood-medium">{t('noData')}</p>
             ) : (
@@ -187,7 +187,7 @@ export const Dashboard = () => {
                       <p className="truncate text-sm font-medium text-wood-dark">{product.name}</p>
                       <p className="text-[11px] text-wood-medium">{format(new Date(product.expirationDate!), 'dd/MM/yyyy')}</p>
                     </div>
-                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-gold/40 bg-gold/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#8a6420]">
+                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-gold/40 bg-gold/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#B45309]">
                       <CalendarClock size={12} />
                       {info.days === 0 ? t('expiresToday') : t('expiresInDays').replace('{n}', String(info.days))}
                     </span>
@@ -204,11 +204,11 @@ export const Dashboard = () => {
         <Panel title={t('salesEvolution')} icon={<TrendingUp size={18} className="text-sage" />}>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={monthly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E879F940" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#8B3A9E' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B3A9E' }} tickFormatter={(v) => `${v / 1000}k`} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E4E8F1" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#56627A' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#56627A' }} tickFormatter={(v) => `${v / 1000}k`} />
               <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #C8844A40' }} />
-              <Line type="monotone" dataKey="sales" name={t('sales')} stroke="#3F9E84" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+              <Line type="monotone" dataKey="sales" name={t('sales')} stroke="#12B76A" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         </Panel>
@@ -216,14 +216,14 @@ export const Dashboard = () => {
         <Panel title={t('comparison')} icon={<TrendingUp size={18} className="text-wood-warm" />}>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={monthly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E879F940" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#8B3A9E' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B3A9E' }} tickFormatter={(v) => `${v / 1000}k`} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E4E8F1" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#56627A' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#56627A' }} tickFormatter={(v) => `${v / 1000}k`} />
               <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #C8844A40' }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="sales" name={t('sales')} fill="#3F9E84" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="purchases" name={t('purchase')} fill="#C026D3" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="expenses" name={t('expenses')} fill="#E24A6A" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="sales" name={t('sales')} fill="#12B76A" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="purchases" name={t('purchase')} fill="#2F5BFF" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expenses" name={t('expenses')} fill="#F04438" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Panel>
@@ -335,7 +335,7 @@ export const Dashboard = () => {
               <p className="text-xs text-wood-medium">{t('inactive')}</p>
             </div>
             <div className="col-span-2 rounded-xl bg-gold/10 p-3 text-center">
-              <p className="text-mono text-xl font-bold text-[#8a6420]">{formatMoney(salaryDue)}</p>
+              <p className="text-mono text-xl font-bold text-[#B45309]">{formatMoney(salaryDue)}</p>
               <p className="text-xs text-wood-medium">{t('salariesToPay')}</p>
             </div>
           </div>

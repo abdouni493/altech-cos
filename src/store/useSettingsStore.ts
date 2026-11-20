@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type { StoreSettings } from '@/types'
-import { remote } from '@/lib/cloud'
 
 interface SettingsState {
   settings: StoreSettings
@@ -8,7 +7,7 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>()(
-  (set, get) => ({
+  (set) => ({
     settings: {
       logo: '',
       name: '',
@@ -24,7 +23,6 @@ export const useSettingsStore = create<SettingsState>()(
     },
     updateSettings: (data) => {
       set((s) => ({ settings: { ...s.settings, ...data } }))
-      remote.settings.save(get().settings)
     },
   }),
 )

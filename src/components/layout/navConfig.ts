@@ -1,11 +1,10 @@
 import {
   LayoutDashboard,
-  SprayCan,
+  Boxes,
   ShoppingBag,
-  FlaskConical,
-  Store,
+  ScanBarcode,
   Receipt,
-  Heart,
+  Users,
   Truck,
   UserCog,
   Wallet,
@@ -23,21 +22,22 @@ export interface NavItem {
   labelKey: TranslationKey
   icon: LucideIcon
   color: string
+  /** Alt + this key opens the module from anywhere. */
+  hotkey: string
 }
 
-// Icons & accent colours tuned for a cosmetics boutique (violet · fuchsia · pink · lilac).
+// Icons & accents of the Altech POS identity (blue · cyan · amber · green).
 export const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard', path: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, color: '#F5C2F1' },
-  { key: 'stock', path: '/stock', labelKey: 'stock', icon: SprayCan, color: '#E879F9' },
-  { key: 'purchase', path: '/purchase', labelKey: 'purchase', icon: ShoppingBag, color: '#C4B5FD' },
-  { key: 'production', path: '/production', labelKey: 'production', icon: FlaskConical, color: '#A78BFA' },
-  { key: 'pos', path: '/pos', labelKey: 'pos', icon: Store, color: '#F0ABFC' },
-  { key: 'sales', path: '/sales', labelKey: 'sales', icon: Receipt, color: '#F9A8D4' },
-  { key: 'clients', path: '/clients', labelKey: 'clients', icon: Heart, color: '#F472B6' },
-  { key: 'suppliers', path: '/suppliers', labelKey: 'suppliers', icon: Truck, color: '#D8B4FE' },
-  { key: 'workers', path: '/workers', labelKey: 'workers', icon: UserCog, color: '#F0B6D8' },
-  { key: 'expenses', path: '/expenses', labelKey: 'expenses', icon: Wallet, color: '#FBA6CB' },
-  { key: 'caisse', path: '/caisse', labelKey: 'caisse', icon: Banknote, color: '#C4B5FD' },
-  { key: 'reports', path: '/reports', labelKey: 'reports', icon: PieChart, color: '#F5C2F1' },
-  { key: 'settings', path: '/settings', labelKey: 'settings', icon: Settings, color: '#E879F9' },
+  { key: 'dashboard', path: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, color: '#8EA6FF', hotkey: '1' },
+  { key: 'pos', path: '/pos', labelKey: 'pos', icon: ScanBarcode, color: '#FFC24D', hotkey: '2' },
+  { key: 'stock', path: '/stock', labelKey: 'stock', icon: Boxes, color: '#5EEAD4', hotkey: '3' },
+  { key: 'purchase', path: '/purchase', labelKey: 'purchase', icon: ShoppingBag, color: '#7DD3FC', hotkey: '4' },
+  { key: 'sales', path: '/sales', labelKey: 'sales', icon: Receipt, color: '#86EFAC', hotkey: '5' },
+  { key: 'clients', path: '/clients', labelKey: 'clients', icon: Users, color: '#93C5FD', hotkey: '6' },
+  { key: 'suppliers', path: '/suppliers', labelKey: 'suppliers', icon: Truck, color: '#67E8F9', hotkey: '7' },
+  { key: 'workers', path: '/workers', labelKey: 'workers', icon: UserCog, color: '#C7D2FE', hotkey: '8' },
+  { key: 'expenses', path: '/expenses', labelKey: 'expenses', icon: Wallet, color: '#FCA5A5', hotkey: 'E' },
+  { key: 'caisse', path: '/caisse', labelKey: 'caisse', icon: Banknote, color: '#6EE7B7', hotkey: 'C' },
+  { key: 'reports', path: '/reports', labelKey: 'reports', icon: PieChart, color: '#FDE68A', hotkey: 'R' },
+  { key: 'settings', path: '/settings', labelKey: 'settings', icon: Settings, color: '#CBD5E1', hotkey: 'P' },
 ]

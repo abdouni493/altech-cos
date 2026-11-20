@@ -7,7 +7,7 @@ import type {
   Permissions,
 } from '@/types'
 import { uid } from '@/utils/helpers'
-import { remote } from '@/lib/cloud'
+import { useAuthStore } from './useAuthStore'
 
 interface WorkerState {
   workers: Worker[]
@@ -21,12 +21,12 @@ interface WorkerState {
   addAbsence: (workerId: string, absence: Omit<WorkerAbsence, 'id'>) => void
   addPayment: (workerId: string, payment: Omit<WorkerPayment, 'id'>) => void
   /**
-   * Creates (or refreshes) the employee login inside Supabase `auth.users`
-   * so the worker can sign in directly with their own permissions.
-   * Throws on failure so the caller can show the error.
+   * Creates (or refreshes) the employee login in the local database so the
+   * worker can sign in with their own permissions. Throws on invalid input
+   * (email already used, password too short…) so the caller can show it.
    */
   provisionAccount: (workerId: string, password: string) => Promise<void>
-  /** Removes the employee login (auth.users row + profile). */
+  /** Removes the employee login. */
   revokeAccount: (workerId: string) => Promise<void>
 }
 
@@ -37,6 +37,8 @@ export const useWorkerStore = create<WorkerState>()(
     addWorker: (data) => {
       const worker: Worker = {
         ...data,
+        // the password only feeds the login account — it is never stored here
+        password: '',
         id: uid('w'),
         advances: [],
         absences: [],
@@ -44,26 +46,31 @@ export const useWorkerStore = create<WorkerState>()(
         createdAt: new Date().toISOString(),
       }
       set((s) => ({ workers: [worker, ...s.workers] }))
-      remote.workers.save(worker)
       return worker
     },
     updateWorker: (id, data) => {
-      set((s) => ({ workers: s.workers.map((w) => (w.id === id ? { ...w, ...data } : w)) }))
+      set((s) => ({ workers: s.workers.map((w) => (w.id === id ? { ...w, ...data, password: '' } : w)) }))
+      // keep the login identifiers in step with the worker card
       const updated = get().workers.find((w) => w.id === id)
-      if (updated) remote.workers.save(updated)
+      const auth = useAuthStore.getState()
+      if (updated?.hasAccount && auth.users.some((u) => u.workerId === id)) {
+        try {
+          auth.upsertWorkerAccount(updated)
+        } catch (e) {
+          console.warn('[workers] account sync', e)
+        }
+      }
     },
     deleteWorker: (id) => {
+      useAuthStore.getState().removeWorkerAccount(id)
       set((s) => ({ workers: s.workers.filter((w) => w.id !== id) }))
-      remote.workers.remove(id)
     },
     setPermissions: (id, permissions) => {
       set((s) => ({ workers: s.workers.map((w) => (w.id === id ? { ...w, permissions } : w)) }))
-      remote.workers.setPermissions(id, permissions)
     },
     addRole: (name) =>
       set((s) => {
         if (s.roles.includes(name)) return s
-        remote.workers.addRole(name)
         return { roles: [...s.roles, name] }
       }),
     addAdvance: (workerId, advance) => {
@@ -73,7 +80,6 @@ export const useWorkerStore = create<WorkerState>()(
           w.id === workerId ? { ...w, advances: [created, ...w.advances] } : w,
         ),
       }))
-      remote.workers.addAdvance(workerId, created)
     },
     addAbsence: (workerId, absence) => {
       const created: WorkerAbsence = { ...absence, id: uid('abs') }
@@ -82,7 +88,6 @@ export const useWorkerStore = create<WorkerState>()(
           w.id === workerId ? { ...w, absences: [created, ...w.absences] } : w,
         ),
       }))
-      remote.workers.addAbsence(workerId, created)
     },
     addPayment: (workerId, payment) => {
       const created: WorkerPayment = { ...payment, id: uid('wp') }
@@ -97,18 +102,17 @@ export const useWorkerStore = create<WorkerState>()(
           }
         }),
       }))
-      remote.workers.addPayment(workerId, created)
     },
     provisionAccount: async (workerId, password) => {
       const worker = get().workers.find((w) => w.id === workerId)
       if (!worker) throw new Error('WORKER_NOT_FOUND')
-      await remote.workers.createAccount(worker, password)
+      useAuthStore.getState().upsertWorkerAccount({ ...worker, hasAccount: true }, password)
       set((s) => ({
         workers: s.workers.map((w) => (w.id === workerId ? { ...w, hasAccount: true } : w)),
       }))
     },
     revokeAccount: async (workerId) => {
-      await remote.workers.disableAccount(workerId)
+      useAuthStore.getState().removeWorkerAccount(workerId)
       set((s) => ({
         workers: s.workers.map((w) => (w.id === workerId ? { ...w, hasAccount: false } : w)),
       }))

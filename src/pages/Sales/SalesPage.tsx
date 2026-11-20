@@ -71,7 +71,7 @@ export const SalesPage = () => {
     <div>
       <PageHeader title={t('sales')} subtitle={`${sales.length}`} actions={<ViewToggle view={view} onChange={setView} labels={{ cards: t('cardView'), table: t('tableView') }} />} />
 
-      <div className="card-wood mb-5 space-y-3 rounded-2xl p-4">
+      <div className="card-wood mb-5 space-y-3 rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-3">
           <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')} (${t('client')} / ${t('reference')})`} className="min-w-[220px] flex-1" />
           <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="max-w-[160px]">
@@ -106,7 +106,7 @@ export const SalesPage = () => {
               const status = paymentStatus(s.total, s.paid)
               const rest = remaining(s.total, s.paid)
               return (
-                <motion.div key={s.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-2xl p-4">
+                <motion.div key={s.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-xl p-4">
                   <div className="flex items-start justify-between">
                     <div><p className="text-mono font-bold text-wood-dark">{s.reference}</p><p className="text-sm text-wood-medium">{s.clientName}</p></div>
                     <Badge tone={statusTone(status)}>{statusLabel(status)}</Badge>
@@ -130,10 +130,10 @@ export const SalesPage = () => {
           </AnimatePresence>
         </motion.div>
       ) : (
-        <div className="card-wood overflow-hidden rounded-2xl">
+        <div className="card-wood overflow-hidden rounded-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-wood-header text-white">
+              <thead className="table-head">
                 <tr>
                   <th className="px-4 py-3 text-start">{t('reference')}</th>
                   <th className="px-4 py-3 text-start">{t('client')}</th>
@@ -188,7 +188,7 @@ export const SalesPage = () => {
                     <td className="py-2 font-medium">
                       <span className="flex items-center gap-1.5">
                         {l.kind === 'retail' && <Beaker size={13} className="shrink-0 text-wood-warm" />}
-                        {l.kind === 'production' && <FlaskConical size={13} className="shrink-0 text-violet-500" />}
+                        {l.kind === 'production' && <FlaskConical size={13} className="shrink-0 text-indigo-500" />}
                         {l.productName}
                       </span>
                     </td>

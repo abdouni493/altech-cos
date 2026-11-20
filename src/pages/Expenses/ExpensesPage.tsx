@@ -67,7 +67,7 @@ export const ExpensesPage = () => {
     <div>
       <PageHeader title={t('expenses')} subtitle={formatMoney(total)} actions={<Button onClick={openNew}><Plus size={18} />{t('newExpense')}</Button>} />
 
-      <div className="card-wood mb-5 flex flex-wrap items-center gap-3 rounded-2xl p-4">
+      <div className="card-wood mb-5 flex flex-wrap items-center gap-3 rounded-xl p-4">
         <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} className="min-w-[200px] flex-1" />
         <div className="flex items-center gap-2">
           <span className="text-xs text-wood-medium">{t('from')}</span>
@@ -83,9 +83,9 @@ export const ExpensesPage = () => {
         <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <AnimatePresence>
             {filtered.map((e, i) => (
-              <motion.div key={e.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-2xl p-4">
+              <motion.div key={e.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-xl p-4">
                 <div className="flex items-start justify-between">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-terracotta to-red-600 text-white"><Wallet size={20} /></div>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-terracotta to-rose-600 text-white"><Wallet size={20} /></div>
                   <span className="text-mono text-lg font-bold text-terracotta">{formatMoney(e.amount)}</span>
                 </div>
                 <h3 className="mt-3 font-bold text-wood-dark">{e.name}</h3>

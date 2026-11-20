@@ -55,7 +55,7 @@ export const WorkersPage = () => {
     <div>
       <PageHeader title={t('workers')} subtitle={`${workers.length}`} actions={<Button onClick={() => open('form', null)}><Plus size={18} />{t('newWorker')}</Button>} />
 
-      <div className="card-wood mb-5 rounded-2xl p-4">
+      <div className="card-wood mb-5 rounded-xl p-4">
         <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} />
       </div>
 
@@ -65,7 +65,7 @@ export const WorkersPage = () => {
         <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <AnimatePresence>
             {filtered.map((w, i) => (
-              <motion.div key={w.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-2xl p-4">
+              <motion.div key={w.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-xl p-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-gold to-wood-warm font-bold text-white">{initials(w.fullName)}</div>
                   <div className="min-w-0 flex-1">

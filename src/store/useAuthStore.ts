@@ -1,230 +1,226 @@
 import { create } from 'zustand'
-import type { AppUser, Permissions } from '@/types'
-import { supabase, isNetworkError } from '@/lib/supabase'
-import { setCloudSignedIn } from '@/lib/cloud'
+import type { AppUser, LocalUser, Worker } from '@/types'
+import { hashPassword, newSalt, verifyPassword } from '@/lib/password'
+import { uid } from '@/utils/helpers'
+import { useWorkerStore } from './useWorkerStore'
+import { flushDatabase, initDatabase } from '@/lib/database'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type Row = Record<string, any>
+const SESSION_KEY = 'altech-pos-session'
 
-const profileToUser = (p: Row): AppUser => ({
-  id: p.id,
-  fullName: p.full_name ?? '',
-  username: p.username ?? '',
-  email: p.email ?? '',
-  password: '',
-  role: p.role === 'admin' ? 'Administrateur' : p.job_title || 'Employé',
-  permissions: p.permissions === 'ALL' ? 'ALL' : ((p.permissions ?? {}) as Permissions),
-})
+const readSession = (): string | null => {
+  try {
+    return localStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+const writeSession = (userId: string | null) => {
+  try {
+    if (userId) localStorage.setItem(SESSION_KEY, userId)
+    else localStorage.removeItem(SESSION_KEY)
+  } catch {
+    /* private mode — the session simply won't survive a reload */
+  }
+}
 
-const loadProfile = async (userId: string, fallbackEmail: string): Promise<AppUser> => {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
-  if (error) throw error
-  if (!data) {
-    // signed in but no profile row yet (project half-initialised)
+const norm = (v: string) => v.trim().toLowerCase()
+
+/**
+ * What the screens see of a login. Employee permissions are read live from
+ * their worker record, so editing them in "Employés" applies on next render.
+ */
+const toAppUser = (u: LocalUser, workers: Worker[]): AppUser | null => {
+  if (u.role === 'admin') {
     return {
-      id: userId,
-      fullName: fallbackEmail,
-      username: '',
-      email: fallbackEmail,
+      id: u.id,
+      fullName: u.fullName,
+      username: u.username,
+      email: u.email,
       password: '',
-      role: 'Employé',
-      permissions: {},
+      role: 'Administrateur',
+      permissions: 'ALL',
     }
   }
-  return profileToUser(data)
+  const worker = workers.find((w) => w.id === u.workerId)
+  if (!worker || !worker.active || !worker.hasAccount) return null
+  return {
+    id: u.id,
+    fullName: worker.fullName || u.fullName,
+    username: u.username,
+    email: u.email,
+    password: '',
+    role: worker.role || 'Employé',
+    permissions: worker.permissions ?? {},
+  }
 }
 
 interface AuthState {
-  /** The signed-in member, read from Supabase — never from localStorage. */
+  /** Every login of the shop — persisted in the local database. */
+  users: LocalUser[]
   currentUser: AppUser | null
-  /** false while the Supabase session is being restored on boot. */
+  /** false until the local database is loaded. */
   ready: boolean
-  /** true when the last cloud call succeeded. */
-  online: boolean
-  /** true while the shop is being downloaded from Supabase. */
-  syncing: boolean
+  /** Set when the database could not be opened at boot. */
+  bootError: string
 
   init: () => Promise<void>
-  /** Downloads the whole shop again. */
-  refresh: () => Promise<void>
   login: (identifier: string, password: string) => Promise<AppUser | null>
-  createAdmin: (data: {
-    fullName: string
-    username: string
-    email: string
-    password: string
-  }) => Promise<AppUser>
-  adminExists: () => Promise<boolean>
-  logout: () => Promise<void>
-  updateAccount: (
-    data: Partial<Pick<AppUser, 'fullName' | 'username' | 'email' | 'password'>>,
-  ) => Promise<void>
+  createAdmin: (data: { fullName: string; username: string; email: string; password: string }) => Promise<AppUser>
+  hasAdmin: () => boolean
+  logout: () => void
+  updateAccount: (data: Partial<Pick<AppUser, 'fullName' | 'username' | 'email' | 'password'>>) => Promise<void>
+  /** Creates or refreshes the login of an employee. */
+  upsertWorkerAccount: (worker: Worker, password?: string) => void
+  removeWorkerAccount: (workerId: string) => void
 }
 
-/** Pulls the shop from Supabase into the stores, flagging the sync state. */
-const downloadShop = async (set: (partial: Partial<AuthState>) => void) => {
-  set({ syncing: true })
-  try {
-    const { syncFromCloud } = await import('@/lib/sync')
-    await syncFromCloud()
-    set({ online: true })
-  } catch (e) {
-    set({ online: !isNetworkError(e) })
-    console.warn('[auth] download', e)
-    throw e
-  } finally {
-    set({ syncing: false })
-  }
+/** Is this email / username already used by another login? */
+const identifierTaken = (users: LocalUser[], value: string, exceptId?: string) => {
+  const v = norm(value)
+  if (!v) return false
+  return users.some((u) => u.id !== exceptId && (norm(u.email) === v || norm(u.username) === v))
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
+  users: [],
   currentUser: null,
   ready: false,
-  online: true,
-  syncing: false,
+  bootError: '',
 
-  // -------------------------------------------------------------------------
-  // Boot: restore the Supabase session, then download the shop
-  // -------------------------------------------------------------------------
   init: async () => {
     try {
-      const { data } = await supabase.auth.getSession()
-      const session = data.session
-      if (session?.user) {
-        setCloudSignedIn(true)
-        const user = await loadProfile(session.user.id, session.user.email ?? '')
-        set({ currentUser: user, online: true })
-        await downloadShop(set).catch(() => undefined)
-      } else {
-        setCloudSignedIn(false)
-        set({ currentUser: null, online: true })
-      }
+      await initDatabase()
+      const sessionId = readSession()
+      const user = sessionId ? get().users.find((u) => u.id === sessionId) : undefined
+      const appUser = user ? toAppUser(user, useWorkerStore.getState().workers) : null
+      if (!appUser) writeSession(null)
+      set({ currentUser: appUser, bootError: '' })
+
+      // Permission / name edits of the signed-in employee apply right away;
+      // a disabled employee is signed out.
+      useWorkerStore.subscribe((s, prev) => {
+        if (s.workers === prev.workers) return
+        const current = get().currentUser
+        const login = current && get().users.find((u) => u.id === current.id)
+        if (!login || login.role !== 'worker') return
+        const next = toAppUser(login, s.workers)
+        if (!next) get().logout()
+        else set({ currentUser: next })
+      })
     } catch (e) {
-      set({ online: !isNetworkError(e), currentUser: null })
-      console.warn('[auth] init', e)
+      console.error('[auth] database', e)
+      set({ bootError: (e as Error).message || 'DATABASE_ERROR' })
     } finally {
       set({ ready: true })
     }
   },
 
-  refresh: async () => {
-    if (!get().currentUser) return
-    await downloadShop(set)
-  },
-
-  // -------------------------------------------------------------------------
-  // Login — accepts an email OR a username, both resolved server-side
-  // -------------------------------------------------------------------------
+  // Email OR username, case-insensitive.
   login: async (identifier, password) => {
-    const id = identifier.trim()
-    let email = id
-    if (!id.includes('@')) {
-      const { data } = await supabase.rpc('resolve_login_email', { p_identifier: id })
-      if (data) email = data as string
-    }
-
-    const { data: auth, error } = await supabase.auth.signInWithPassword({
-      email: email.toLowerCase(),
-      password,
-    })
-    if (error) {
-      // wrong email/password → null (the screen shows "identifiants incorrects");
-      // anything else (offline, project down) bubbles up with its real message
-      if (/invalid login credentials|email not confirmed/i.test(error.message)) return null
-      set({ online: !isNetworkError(error) })
-      throw error
-    }
-    if (!auth.user) return null
-
-    setCloudSignedIn(true)
-    const user = await loadProfile(auth.user.id, auth.user.email ?? '')
-    set({ currentUser: user, online: true })
-    await downloadShop(set)
-    return user
+    const id = norm(identifier)
+    const user = get().users.find((u) => norm(u.email) === id || (u.username && norm(u.username) === id))
+    if (!user || !verifyPassword(password, user.salt, user.passwordHash)) return null
+    const appUser = toAppUser(user, useWorkerStore.getState().workers)
+    if (!appUser) return null
+    writeSession(user.id)
+    set({ currentUser: appUser })
+    return appUser
   },
 
-  // -------------------------------------------------------------------------
-  // Login page → "Créer mon compte Admin" (real row in auth.users)
-  // -------------------------------------------------------------------------
+  // Login page → "Créer un compte Admin" — only while no admin exists.
   createAdmin: async ({ fullName, username, email, password }) => {
-    const { error } = await supabase.rpc('create_admin_account', {
-      p_full_name: fullName,
-      p_username: username,
-      p_email: email,
-      p_password: password,
-    })
-    if (error) throw error
-
-    const { data: auth, error: signInError } = await supabase.auth.signInWithPassword({
+    if (get().hasAdmin()) throw new Error('ADMIN_ALREADY_EXISTS')
+    if (password.length < 4) throw new Error('PASSWORD_TOO_SHORT')
+    const salt = newSalt()
+    const admin: LocalUser = {
+      id: uid('u'),
+      role: 'admin',
+      fullName: fullName.trim(),
+      username: username.trim(),
       email: email.trim().toLowerCase(),
-      password,
-    })
-    if (signInError) throw signInError
-    if (!auth.user) throw new Error('SIGNIN_FAILED')
-
-    setCloudSignedIn(true)
-    const user = await loadProfile(auth.user.id, auth.user.email ?? email)
-    set({ currentUser: user, online: true })
-    await downloadShop(set)
-    return user
+      salt,
+      passwordHash: hashPassword(password, salt),
+      createdAt: new Date().toISOString(),
+    }
+    set((s) => ({ users: [admin, ...s.users] }))
+    await flushDatabase()
+    const appUser = toAppUser(admin, [])!
+    writeSession(admin.id)
+    set({ currentUser: appUser })
+    return appUser
   },
 
-  // -------------------------------------------------------------------------
-  // Drives the visibility of the "Créer un compte Admin" button
-  // -------------------------------------------------------------------------
-  adminExists: async () => {
-    const { data, error } = await supabase.rpc('admin_exists')
-    if (error) {
-      set({ online: !isNetworkError(error) })
-      throw error
-    }
-    set({ online: true })
-    return !!data
-  },
+  hasAdmin: () => get().users.some((u) => u.role === 'admin'),
 
-  logout: async () => {
-    try {
-      await supabase.auth.signOut()
-    } catch (e) {
-      console.warn('[auth] signOut', e)
-    }
-    setCloudSignedIn(false)
+  logout: () => {
+    writeSession(null)
     set({ currentUser: null })
-    const { clearShopState } = await import('@/lib/sync')
-    clearShopState()
   },
 
   updateAccount: async (data) => {
     const current = get().currentUser
     if (!current) return
+    const login = get().users.find((u) => u.id === current.id)
+    if (!login) return
+    if (data.email && identifierTaken(get().users, data.email, login.id)) throw new Error('EMAIL_TAKEN')
+    if (data.username && identifierTaken(get().users, data.username, login.id)) throw new Error('USERNAME_TAKEN')
+    if (data.password && data.password.length < 4) throw new Error('PASSWORD_TOO_SHORT')
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        full_name: data.fullName ?? current.fullName,
-        username: (data.username ?? current.username) || null,
-        email: data.email ?? current.email,
-      })
-      .eq('id', current.id)
-    if (error) throw error
-
-    if (data.password) {
-      const { error: pwError } = await supabase.rpc('change_my_password', {
-        p_password: data.password,
-      })
-      if (pwError) throw pwError
+    const salt = data.password ? newSalt() : login.salt
+    const updated: LocalUser = {
+      ...login,
+      fullName: data.fullName?.trim() || login.fullName,
+      username: data.username?.trim() ?? login.username,
+      email: data.email?.trim().toLowerCase() || login.email,
+      salt,
+      passwordHash: data.password ? hashPassword(data.password, salt) : login.passwordHash,
     }
-    if (data.email && data.email !== current.email) {
-      await supabase.auth.updateUser({ email: data.email })
-    }
+    set((s) => ({ users: s.users.map((u) => (u.id === login.id ? updated : u)) }))
+    const next = toAppUser(updated, useWorkerStore.getState().workers)
+    if (next) set({ currentUser: next })
+  },
 
-    // re-read the row so the screen shows exactly what the server stored
-    set({ currentUser: await loadProfile(current.id, current.email), online: true })
+  upsertWorkerAccount: (worker, password) => {
+    const existing = get().users.find((u) => u.workerId === worker.id)
+    if (identifierTaken(get().users, worker.email, existing?.id)) throw new Error('EMAIL_TAKEN')
+    if (worker.username && identifierTaken(get().users, worker.username, existing?.id))
+      throw new Error('USERNAME_TAKEN')
+    if (!existing && (!password || password.length < 4)) throw new Error('PASSWORD_TOO_SHORT')
+
+    const salt = password ? newSalt() : existing!.salt
+    const login: LocalUser = {
+      id: existing?.id ?? uid('u'),
+      role: 'worker',
+      workerId: worker.id,
+      fullName: worker.fullName,
+      username: worker.username?.trim() ?? '',
+      email: worker.email.trim().toLowerCase(),
+      salt,
+      passwordHash: password ? hashPassword(password, salt) : existing!.passwordHash,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    }
+    set((s) => ({
+      users: existing ? s.users.map((u) => (u.id === existing.id ? login : u)) : [...s.users, login],
+    }))
+  },
+
+  removeWorkerAccount: (workerId) => {
+    const login = get().users.find((u) => u.workerId === workerId)
+    if (!login) return
+    set((s) => ({ users: s.users.filter((u) => u.id !== login.id) }))
+    if (get().currentUser?.id === login.id) get().logout()
   },
 }))
 
-// Keep the cloud writer in sync with the Supabase session lifecycle.
-supabase.auth.onAuthStateChange((event, session) => {
-  setCloudSignedIn(!!session)
-  if (event === 'SIGNED_OUT') useAuthStore.setState({ currentUser: null })
-})
+/** Readable message for the errors thrown above. */
+export const authErrorMessage = (error: unknown): string => {
+  const raw = (error as { message?: string } | null)?.message ?? String(error ?? '')
+  if (/ADMIN_ALREADY_EXISTS/.test(raw)) return 'Un compte administrateur existe déjà'
+  if (/PASSWORD_TOO_SHORT/.test(raw)) return 'Mot de passe trop court (4 caractères minimum)'
+  if (/EMAIL_TAKEN/.test(raw)) return 'Cet email est déjà utilisé par un autre compte'
+  if (/USERNAME_TAKEN/.test(raw)) return "Ce nom d'utilisateur est déjà utilisé"
+  if (/WORKER_NOT_FOUND/.test(raw)) return 'Employé introuvable'
+  if (/INVALID_BACKUP/.test(raw)) return 'Fichier de sauvegarde invalide'
+  if (/Failed to fetch|NetworkError|HTTP 5/i.test(raw)) return 'Serveur local injoignable — relancez Altech POS'
+  return raw || 'Erreur inconnue'
+}

@@ -65,7 +65,7 @@ export const ClientsPage = () => {
     <div>
       <PageHeader title={t('clients')} subtitle={`${clients.length}`} actions={<Button onClick={openNew}><Plus size={18} />{t('newClientBtn')}</Button>} />
 
-      <div className="card-wood mb-5 rounded-2xl p-4">
+      <div className="card-wood mb-5 rounded-xl p-4">
         <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')} (${t('name')} / ${t('phone')})`} />
       </div>
 
@@ -77,7 +77,7 @@ export const ClientsPage = () => {
             {filtered.map((c, i) => {
               const st = clientStats(c.id, sales)
               return (
-                <motion.div key={c.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-2xl p-4">
+                <motion.div key={c.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-xl p-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-wood-btn font-bold text-white">{initials(c.name)}</div>
                     <div className="min-w-0">

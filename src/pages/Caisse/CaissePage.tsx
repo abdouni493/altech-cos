@@ -84,7 +84,7 @@ import type { CaisseTransaction, CaisseType } from '@/types'
 type PeriodKey = 'today' | 'week' | 'month' | 'year' | 'custom'
 
 const Panel = ({ title, icon, action, children, className = '' }: { title: string; icon?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) => (
-  <motion.div variants={fadeUp} className={`card-wood rounded-2xl p-5 ${className}`}>
+  <motion.div variants={fadeUp} className={`card-wood rounded-xl p-5 ${className}`}>
     <div className="mb-4 flex items-center gap-2">
       {icon}
       <h3 className="text-display text-lg font-bold text-wood-dark">{title}</h3>
@@ -298,7 +298,7 @@ export const CaissePage = () => {
       value: wealth.caisseBalance,
       suffix: 'DA',
       decimals: true,
-      accent: wealth.caisseBalance >= 0 ? 'from-sage to-green-600' : 'from-terracotta to-red-600',
+      accent: wealth.caisseBalance >= 0 ? 'from-sage to-emerald-500' : 'from-terracotta to-rose-600',
       hint: t('caisseSubtitle'),
     },
     {
@@ -317,7 +317,7 @@ export const CaissePage = () => {
       suffix: 'DA',
       decimals: true,
       accent: 'from-wood-medium to-wood-light',
-      hint: <span className="inline-flex items-center gap-1 text-violet-500"><FlaskConical size={12} /> {t('productionValue')}: {formatMoney(wealth.productionValue)}</span>,
+      hint: t('stockValue'),
     },
     {
       icon: <Users size={22} />,
@@ -332,12 +332,12 @@ export const CaissePage = () => {
 
   // Detailed period calculation cards
   const detailCards = [
-    { icon: <BadgeDollarSign size={20} />, label: t('sales'), value: stats.salesTotal, sub: `${t('collected')}: ${formatMoney(stats.salesCollected)}`, tone: 'sage', accent: 'from-sage to-green-600' },
+    { icon: <BadgeDollarSign size={20} />, label: t('sales'), value: stats.salesTotal, sub: `${t('collected')}: ${formatMoney(stats.salesCollected)}`, tone: 'sage', accent: 'from-sage to-emerald-500' },
     { icon: <ShoppingCart size={20} />, label: t('purchase'), value: stats.purchasesTotal, sub: `${t('paid')}: ${formatMoney(stats.purchasesPaid)}`, tone: 'wood', accent: 'from-wood-warm to-gold' },
-    { icon: <Wallet size={20} />, label: t('expenses'), value: stats.expenses, sub: t('periodDetails'), tone: 'terracotta', accent: 'from-terracotta to-red-600' },
+    { icon: <Wallet size={20} />, label: t('expenses'), value: stats.expenses, sub: t('periodDetails'), tone: 'terracotta', accent: 'from-terracotta to-rose-600' },
     { icon: <HardHat size={20} />, label: t('salariesPaid'), value: stats.salaries, sub: t('periodDetails'), tone: 'gold', accent: 'from-gold to-gold-light' },
-    { icon: <ArrowDownCircle size={20} />, label: t('depositsTotal'), value: stats.deposits, sub: t('movements'), tone: 'sage', accent: 'from-sage to-green-600' },
-    { icon: <ArrowUpCircle size={20} />, label: t('withdrawalsTotal'), value: stats.withdrawals, sub: t('movements'), tone: 'terracotta', accent: 'from-terracotta to-red-600' },
+    { icon: <ArrowDownCircle size={20} />, label: t('depositsTotal'), value: stats.deposits, sub: t('movements'), tone: 'sage', accent: 'from-sage to-emerald-500' },
+    { icon: <ArrowUpCircle size={20} />, label: t('withdrawalsTotal'), value: stats.withdrawals, sub: t('movements'), tone: 'terracotta', accent: 'from-terracotta to-rose-600' },
   ]
 
   // Cash breakdown (waterfall) rows for the selected period
@@ -371,7 +371,7 @@ export const CaissePage = () => {
       </div>
 
       {/* Period filter bar */}
-      <motion.div variants={fadeUp} className="card-wood mt-5 flex flex-wrap items-center gap-3 rounded-2xl p-4">
+      <motion.div variants={fadeUp} className="card-wood mt-5 flex flex-wrap items-center gap-3 rounded-xl p-4">
         <div className="inline-flex flex-wrap gap-1 rounded-xl border border-wood-light/40 bg-white/60 p-1">
           {periods.map((p) => (
             <button
@@ -407,10 +407,10 @@ export const CaissePage = () => {
 
       {/* Cash-flow summary */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <motion.div variants={cardVariants} custom={0} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-2xl p-5">
-          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br from-sage to-green-600 opacity-10" />
+        <motion.div variants={cardVariants} custom={0} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-xl p-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br from-sage to-emerald-500 opacity-10" />
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sage to-green-600 text-white shadow-wood"><ArrowDownCircle size={20} /></div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sage to-emerald-500 text-white shadow-wood"><ArrowDownCircle size={20} /></div>
             <div>
               <p className="text-sm font-medium text-wood-medium">{t('cashIn')}</p>
               <p className="text-mono text-xl font-bold text-sage">{formatMoney(stats.cashIn)}</p>
@@ -418,10 +418,10 @@ export const CaissePage = () => {
           </div>
         </motion.div>
 
-        <motion.div variants={cardVariants} custom={1} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-2xl p-5">
-          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br from-terracotta to-red-600 opacity-10" />
+        <motion.div variants={cardVariants} custom={1} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-xl p-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br from-terracotta to-rose-600 opacity-10" />
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-terracotta to-red-600 text-white shadow-wood"><ArrowUpCircle size={20} /></div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-terracotta to-rose-600 text-white shadow-wood"><ArrowUpCircle size={20} /></div>
             <div>
               <p className="text-sm font-medium text-wood-medium">{t('cashOut')}</p>
               <p className="text-mono text-xl font-bold text-terracotta">{formatMoney(stats.cashOut)}</p>
@@ -429,13 +429,13 @@ export const CaissePage = () => {
           </div>
         </motion.div>
 
-        <motion.div variants={cardVariants} custom={2} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-2xl p-5">
-          <div className={`absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br opacity-10 ${stats.netFlow >= 0 ? 'from-gold to-gold-light' : 'from-terracotta to-red-600'}`} />
+        <motion.div variants={cardVariants} custom={2} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-xl p-5">
+          <div className={`absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br opacity-10 ${stats.netFlow >= 0 ? 'from-gold to-gold-light' : 'from-terracotta to-rose-600'}`} />
           <div className="flex items-center gap-3">
-            <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood ${stats.netFlow >= 0 ? 'from-gold to-gold-light' : 'from-terracotta to-red-600'}`}><TrendingUp size={20} /></div>
+            <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood ${stats.netFlow >= 0 ? 'from-gold to-gold-light' : 'from-terracotta to-rose-600'}`}><TrendingUp size={20} /></div>
             <div>
               <p className="text-sm font-medium text-wood-medium">{t('netFlow')}</p>
-              <p className={`text-mono text-xl font-bold ${stats.netFlow >= 0 ? 'text-[#8a6420]' : 'text-terracotta'}`}>{formatMoney(stats.netFlow)}</p>
+              <p className={`text-mono text-xl font-bold ${stats.netFlow >= 0 ? 'text-[#B45309]' : 'text-terracotta'}`}>{formatMoney(stats.netFlow)}</p>
             </div>
           </div>
         </motion.div>
@@ -444,7 +444,7 @@ export const CaissePage = () => {
       {/* Detailed period calculation cards */}
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {detailCards.map((c, i) => (
-          <motion.div key={c.label} variants={cardVariants} custom={i} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-2xl p-4">
+          <motion.div key={c.label} variants={cardVariants} custom={i} whileHover={{ y: -4 }} className="card-wood relative overflow-hidden rounded-xl p-4">
             <div className={`mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood ${c.accent}`}>{c.icon}</div>
             <p className="text-xs font-medium text-wood-medium">{c.label}</p>
             <p className="text-mono mt-0.5 text-lg font-bold text-wood-dark">{formatMoney(c.value)}</p>
@@ -476,13 +476,13 @@ export const CaissePage = () => {
         <Panel title={t('inflowVsOutflow')} icon={<TrendingUp size={18} className="text-sage" />}>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E879F940" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8B3A9E' }} interval={0} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B3A9E' }} tickFormatter={(v) => `${v / 1000}k`} />
-              <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #C026D340' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E4E8F1" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#56627A' }} interval={0} />
+              <YAxis tick={{ fontSize: 11, fill: '#56627A' }} tickFormatter={(v) => `${v / 1000}k`} />
+              <Tooltip formatter={(v: number) => formatMoney(v)} contentStyle={{ borderRadius: 12, border: '1px solid #2F5BFF40' }} />
               <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                 {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.kind === 'in' ? '#3F9E84' : '#C026D3'} />
+                  <Cell key={i} fill={d.kind === 'in' ? '#12B76A' : '#2F5BFF'} />
                 ))}
               </Bar>
             </BarChart>
@@ -491,7 +491,7 @@ export const CaissePage = () => {
       </div>
 
       {/* Per-category analysis — click a category to drill the tables below */}
-      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
+      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-xl p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tags size={18} className="text-wood-warm" />
@@ -579,86 +579,9 @@ export const CaissePage = () => {
         </Panel>
       </div>
 
-      {/* Production of the period — batches, gains and raw material eaten */}
-      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FlaskConical size={18} className="text-violet-500" />
-            <h3 className="text-display text-lg font-bold text-wood-dark">{t('productionAnalysis')}</h3>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone="gold">{t('batches')}: {prodStats.count}</Badge>
-            <Badge tone={prodStats.realisedGain >= 0 ? 'sage' : 'unpaid'}>
-              {t('realisedGain')}: {formatMoney(prodStats.realisedGain)}
-            </Badge>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { l: t('producedUnits'), v: `${prodStats.producedUnits}`, c: 'text-wood-dark' },
-            { l: t('productionCost'), v: formatMoney(prodStats.totalCost), c: 'text-terracotta' },
-            { l: t('expectedRevenue'), v: formatMoney(prodStats.expectedRevenue), c: 'text-sage' },
-            { l: t('expectedGain'), v: formatMoney(prodStats.expectedGain), c: prodStats.expectedGain >= 0 ? 'text-sage' : 'text-terracotta' },
-            { l: t('soldUnits'), v: `${prodStats.soldUnits}`, c: 'text-wood-dark' },
-            { l: t('remainingUnits'), v: `${prodStats.remainingUnits}`, c: 'text-wood-dark' },
-          ].map((x) => (
-            <div key={x.l} className="rounded-xl bg-wood-cream/40 p-3">
-              <p className="truncate text-[11px] text-wood-medium">{x.l}</p>
-              <p className={`text-mono text-base font-bold ${x.c}`}>{x.v}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div>
-            <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-wood-medium">
-              {t('productionDetails')}
-            </p>
-            <MiniTable
-              head={[t('reference'), t('producedUnits'), t('productionCost'), t('expectedGain')]}
-              rows={periodBatches.map((p) => [
-                <span key="n">
-                  {p.outputName || p.sheetName}
-                  <span className="ms-1 text-[10px] text-wood-medium/60">· {p.reference}</span>
-                  {p.status === 'recovered' && (
-                    <span className="ms-1 text-[10px] font-semibold text-[#8a6420]">· {t('recovered')}</span>
-                  )}
-                </span>,
-                `${p.outputQuantity} (${p.soldQuantity} ${t('soldUnits').toLowerCase()})`,
-                formatMoney(p.totalCost),
-                <span key="g" className={p.gain >= 0 ? 'text-sage' : 'text-terracotta'}>
-                  {p.gain >= 0 ? '+' : ''}
-                  {formatMoney(p.gain)}
-                </span>,
-              ])}
-              empty={t('noProduction')}
-            />
-          </div>
-          <div>
-            <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-wood-medium">
-              {t('componentsConsumed')}
-            </p>
-            <MiniTable
-              head={[t('productName'), t('componentQuantity'), t('total')]}
-              rows={prodComponents.map((c) => [
-                c.name,
-                `${c.quantity} ${c.unit ?? ''}`,
-                formatMoney(c.cost),
-              ])}
-              empty={t('noData')}
-            />
-            <div className="mt-2 flex items-center justify-between rounded-xl bg-violet-50 px-3 py-2 text-sm">
-              <span className="text-wood-medium">{t('productionValue')}</span>
-              <span className="text-mono font-bold text-violet-600">{formatMoney(prodStats.remainingValue)}</span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
       {/* Retail articles — how many containers and what is left in the open one */}
       {retailRows.length > 0 && (
-        <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
+        <motion.div variants={fadeUp} className="card-wood mt-5 rounded-xl p-5">
           <div className="mb-4 flex items-center gap-2">
             <Beaker size={18} className="text-wood-warm" />
             <h3 className="text-display text-lg font-bold text-wood-dark">{t('retailProducts')}</h3>
@@ -691,12 +614,12 @@ export const CaissePage = () => {
           </div>
         </Panel>
 
-        <Panel title={t('workerMovements')} icon={<HandCoins size={18} className="text-[#8a6420]" />}>
+        <Panel title={t('workerMovements')} icon={<HandCoins size={18} className="text-[#B45309]" />}>
           <div className="space-y-3">
             <div>
               <p className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-bold uppercase tracking-wide text-wood-medium">
                 <span>{t('salariesPaid')}</span>
-                <span className="text-mono normal-case text-[#8a6420]">{formatMoney(workerMov.totalPayments)}</span>
+                <span className="text-mono normal-case text-[#B45309]">{formatMoney(workerMov.totalPayments)}</span>
               </p>
               <MiniTable
                 head={[t('workers'), t('date'), t('amount')]}
@@ -720,7 +643,7 @@ export const CaissePage = () => {
       </div>
 
       {/* Transactions history */}
-      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-2xl p-5">
+      <motion.div variants={fadeUp} className="card-wood mt-5 rounded-xl p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ArrowRightLeft size={18} className="text-wood-warm" />
@@ -766,7 +689,7 @@ export const CaissePage = () => {
                     exit={{ opacity: 0, x: 12 }}
                     className="group flex items-center gap-3 rounded-xl border border-wood-light/20 bg-wood-cream/30 px-3 py-2.5"
                   >
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-wood ${isDeposit ? 'bg-gradient-to-br from-sage to-green-600' : 'bg-gradient-to-br from-terracotta to-red-600'}`}>
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-wood ${isDeposit ? 'bg-gradient-to-br from-sage to-emerald-500' : 'bg-gradient-to-br from-terracotta to-rose-600'}`}>
                       {isDeposit ? <ArrowDownCircle size={18} /> : <ArrowUpCircle size={18} />}
                     </div>
                     <div className="min-w-0 flex-1">

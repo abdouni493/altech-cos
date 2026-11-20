@@ -81,7 +81,7 @@ export const PurchasePage = () => {
         }
       />
 
-      <div className="card-wood mb-5 flex flex-wrap items-center gap-3 rounded-2xl p-4">
+      <div className="card-wood mb-5 flex flex-wrap items-center gap-3 rounded-xl p-4">
         <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} className="min-w-[200px] flex-1" />
         <Select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)} className="max-w-[200px]">
           <option value="">{t('all')} — {t('supplier')}</option>
@@ -107,7 +107,7 @@ export const PurchasePage = () => {
               const status = paymentStatus(p.total, p.paid)
               const rest = remaining(p.total, p.paid)
               return (
-                <motion.div key={p.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-2xl p-4">
+                <motion.div key={p.id} variants={cardVariants} custom={i} layout whileHover={{ y: -4 }} className="card-wood rounded-xl p-4">
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-mono font-bold text-wood-dark">{p.reference}</p>
@@ -134,10 +134,10 @@ export const PurchasePage = () => {
           </AnimatePresence>
         </motion.div>
       ) : (
-        <div className="card-wood overflow-hidden rounded-2xl">
+        <div className="card-wood overflow-hidden rounded-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-wood-header text-white">
+              <thead className="table-head">
                 <tr>
                   <th className="px-4 py-3 text-start">{t('reference')}</th>
                   <th className="px-4 py-3 text-start">{t('supplier')}</th>

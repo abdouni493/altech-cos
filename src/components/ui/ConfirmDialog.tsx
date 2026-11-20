@@ -31,8 +31,8 @@ export const ConfirmDialog = ({
   return (
     <Modal open={open} onClose={onClose} size="sm">
       <div className="flex flex-col items-center gap-4 py-2 text-center">
-        <div className={`flex h-16 w-16 items-center justify-center rounded-full ${danger ? 'bg-terracotta/15' : 'bg-gold/20'}`}>
-          <Icon className={danger ? 'text-terracotta' : 'text-[#8a6420]'} size={32} />
+        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ring-8 ${danger ? 'bg-terracotta/10 ring-terracotta/5' : 'bg-gold/15 ring-gold/5'}`}>
+          <Icon className={danger ? 'text-terracotta' : 'text-[#B45309]'} size={28} />
         </div>
         <h3 className="text-display text-xl font-bold text-wood-dark">{title ?? t('confirmDelete')}</h3>
         <p className="text-sm text-wood-medium">{message ?? t('confirmDeleteMsg')}</p>
@@ -43,6 +43,7 @@ export const ConfirmDialog = ({
           <Button
             variant={tone}
             className="flex-1"
+            autoFocus
             onClick={() => {
               onConfirm()
               onClose()

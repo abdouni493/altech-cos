@@ -1,5 +1,5 @@
 // ============================================================================
-// Belle Cosmétiques — Core domain types
+// Altech POS — Core domain types
 // ============================================================================
 
 export type Lang = 'fr' | 'ar'
@@ -19,6 +19,23 @@ export interface AppUser {
   role: string
   permissions: Permissions | 'ALL'
   isDemo?: boolean
+}
+
+/**
+ * A login stored in the local database. Passwords are never stored, only a
+ * salted hash. Employee logins point at their worker record, which carries
+ * the permissions.
+ */
+export interface LocalUser {
+  id: string
+  role: 'admin' | 'worker'
+  workerId?: string
+  fullName: string
+  username: string
+  email: string
+  passwordHash: string
+  salt: string
+  createdAt: string
 }
 
 /** A permission set: which modules are enabled and which actions inside them. */
@@ -61,6 +78,8 @@ export interface Product {
   salePrice: number
   quantity: number // current quantity in stock (sealed / whole units)
   minQuantity: number // alert threshold
+  /** Unit a whole article is counted in — boîte, paquet, flacon… (optional). */
+  stockUnit?: string
   hasExpiration?: boolean // whether this product tracks an expiration date
   expirationDate?: string // ISO / YYYY-MM-DD date when the product expires
   // -- Retail ("vente au détail") ---------------------------------------------
@@ -79,6 +98,8 @@ export interface Product {
   retailPrice?: number
   /** Content still available inside the currently opened unit. */
   openRemaining?: number
+  /** Optional barcode printed on ONE piece — scanning it sells one portion. */
+  retailBarcode?: string
   createdAt: string
 }
 

@@ -1,174 +1,117 @@
-# Belle Cosmétiques — Gestion de Boutique Beauté
+# Altech POS — Caisse & gestion de boutique, 100 % hors ligne
 
-Application web complète de gestion d'une boutique de cosmétiques, parfums et soins de beauté, construite en **React 18 + TypeScript + Vite**. Toutes les données sont locales (seed riche + persistance `localStorage` via Zustand). Interface bilingue **Français / Arabe (RTL)**, palette « rose · prune · blush · or champagne », animations Framer Motion partout.
+Application de caisse et de gestion de boutique (stock, achats, ventes, clients,
+fournisseurs, employés, dépenses, caisse, rapports) en **React 18 + TypeScript + Vite**.
+Elle fonctionne **sans internet** : toutes les données sont enregistrées sur le PC, dans le dossier
+`data\`. Interface bilingue **Français / Arabe (RTL)**, utilisable au clavier, sur PC et sur mobile.
 
-## Démarrage
+## Installation sur un PC client (Windows)
+
+Prérequis : **Node.js LTS** (https://nodejs.org), à installer une seule fois.
+
+1. Copiez tout le dossier de l'application sur le PC (par ex. `C:\AltechPOS`).
+2. Double-cliquez sur **`create-desktop-shortcut.bat`** :
+   - installe les dépendances et prépare l'application (première fois : quelques minutes) ;
+   - crée le raccourci **« Altech POS »** sur le bureau et dans le menu Démarrer, avec l'icône Altech POS.
+3. Double-cliquez sur **Altech POS** sur le bureau : le serveur local démarre en arrière-plan et
+   l'application s'ouvre dans **sa propre fenêtre, sans cadre de navigateur** (Edge ou Chrome en mode
+   application ; à défaut, le navigateur par défaut).
+
+| Fichier | Rôle |
+|---|---|
+| `create-desktop-shortcut.bat` | installation + raccourci bureau / menu Démarrer |
+| `run-app.bat` | lance l'application avec la fenêtre du serveur visible (journal, dépannage). Fermer cette fenêtre arrête le serveur |
+| `stop-app.bat` | arrête le serveur lancé par le raccourci (avant une mise à jour ou un déplacement du dossier) |
+
+Après une mise à jour du code, le raccourci reconstruit l'application automatiquement au lancement suivant.
+
+## Premier lancement
+
+L'écran de connexion propose **« Créer un compte Admin »** tant qu'aucun administrateur n'existe.
+Dès que le compte est créé, ce bouton **disparaît définitivement**. L'administrateur se connecte
+ensuite avec son email **ou** son nom d'utilisateur. Les comptes des employés se créent dans
+**Employés** (case « Compte de connexion ») et utilisent les permissions de la fiche employé.
+
+Les mots de passe ne sont jamais stockés : seule une empreinte salée (SHA-256 itéré) est enregistrée.
+
+## Données — base locale
+
+| Élément | Emplacement |
+|---|---|
+| Base de données | `data\altech-pos.json` + journal `data\journal.jsonl` (chaque opération est écrite sur disque immédiatement) |
+| Sauvegardes automatiques | `data\backups\` — une copie par jour, 30 jours conservés, + une copie avant chaque restauration |
+| Journal du serveur | `data\server.log`, `data\server-error.log` |
+
+- **Sauvegarde / restauration manuelle** : Paramètres → Base de données (fichier JSON). Les sauvegardes
+  de l'ancienne version en ligne sont acceptées (les comptes actuels sont alors conservés).
+- **Changer de PC** : faites une sauvegarde, installez l'application sur le nouveau PC, restaurez.
+- Autre dossier de données : variable d'environnement `ALTECH_DATA_DIR`. Autre port : `PORT` (5175 par défaut).
+- Si l'application est ouverte sans le serveur local (simple hébergement statique), les données sont
+  gardées dans le navigateur (IndexedDB).
+- La base n'est accessible que depuis ce PC. Pour partager la même base entre plusieurs caisses du
+  réseau local, démarrez le serveur avec `ALTECH_LAN_DB=1` et ouvrez `http://<IP-du-PC>:5175` sur les autres postes.
+
+## Vente en détail (boîte / pièce)
+
+Un produit peut être vendu **à la boîte** et **à la pièce** — ex. un paquet de 20 cigarettes, un flacon
+de parfum de 100 ml vendu par 10 ml.
+
+1. **Stock → Nouveau produit** : choisissez (ou créez sur place avec **+**) l'**unité** du produit
+   (paquet, boîte, flacon…), activez **Vente en détail**, choisissez l'**unité de détail** (pièce,
+   cigarette, ml…), le **nombre de pièces dans une boîte** et le **prix de vente d'une pièce**. Le stock
+   initial se saisit en « 12 paquets + 7 cigarettes ». Optionnel : portion par défaut et code-barres
+   de la pièce. Les prix d'achat / de vente de la boîte arrivent avec le premier achat.
+2. **Caisse** : toucher (ou scanner) le produit ouvre la fenêtre **« Vendre en paquet / Au détail »**
+   (touches **B** / **D**), avec quantité (**↑ ↓**), raccourcis de quantité, prix en direct et
+   l'état du rayon **avant → après** la vente. Scanner le code-barres d'une pièce l'ajoute directement.
+3. **Stock** : chaque carte affiche les **boîtes scellées**, les **pièces restantes dans la boîte
+   entamée** (avec jauge) et le total ; le bouton **« Ouvrir 1 paquet »** entame une boîte.
+4. Le stock diminue automatiquement à chaque vente : les pièces sont prises d'abord dans la boîte
+   entamée, puis une nouvelle boîte est ouverte. Supprimer une vente remet tout en stock.
+
+## Raccourcis clavier (F1 dans l'application)
+
+| Touche | Action |
+|---|---|
+| `Alt+1…8`, `Alt+E/C/R/P` | ouvrir un module (tableau de bord, caisse, stock, achats…) |
+| `Alt+M` | menu complet |
+| `F2` | recherche / scanner de la caisse |
+| `3*code` puis Entrée | ajouter 3 articles d'un coup |
+| `F4` / `F6` / `F7` | client / remise / montant reçu |
+| `F8` | mettre la vente **en attente** (rappel via « En attente ») |
+| `F9` ou `Ctrl+Entrée` | valider la vente |
+| `+` / `−` / `Suppr` | quantité / suppression de la dernière ligne |
+| `Ctrl+Entrée` | enregistrer la fiche produit |
+
+## Scanner avec le téléphone
+
+Dans la caisse, **« Scanner avec mon téléphone »** affiche un QR code. Le téléphone (sur le même
+Wi-Fi) l'ouvre et chaque code-barres filmé arrive dans le panier, relayé par le serveur local — sans
+internet. L'adresse réseau du PC est détectée automatiquement (Paramètres → Base de données).
+Les navigateurs mobiles n'autorisent la caméra que sur une page sécurisée : si la caméra du téléphone
+est refusée, utilisez la saisie manuelle de la page de scan, la caméra du PC ou une douchette USB.
+
+## Développement
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run dev        # http://localhost:5175 — même base de données data\ que le serveur hors ligne
+npm run build      # build de production (dist\)
+npm start          # serveur hors ligne : sert dist\ + la base locale
+npm run typecheck
 ```
 
-Autres scripts :
-
-```bash
-npm run build      # build de production (tsc + vite)
-npm run preview    # prévisualiser le build
-npm run typecheck  # vérification des types
-```
-
-## Base de données Supabase
-
-L'application est connectée au projet Supabase `https://iaodxcutsajckdjjqhnk.supabase.co`.
-
-**Installation (une seule fois) :**
-
-1. Supabase Dashboard → **SQL Editor** → New query
-2. Coller tout le fichier [`supabase_schema.sql`](supabase_schema.sql) (racine du projet) et **RUN**
-   — le script est idempotent, il peut être relancé sans risque.
-3. Revenir sur l'application → écran de connexion → **« Créer un compte Admin »**.
-
-**Base déjà installée ?** Exécutez plutôt
-[`supabase_migration_retail_production.sql`](supabase_migration_retail_production.sql) : il ajoute la
-vente au détail et le module Production (nouvelles colonnes, tables `tech_sheets` / `productions`, RPC,
-RLS, temps réel) **sans perdre aucune donnée**, et peut être relancé sans risque.
-
-Le fichier SQL contient : toutes les tables (produits, achats + lignes + paiements, ventes + lignes +
-paiements, clients, fournisseurs, employés + acomptes/absences/salaires, dépenses, caisse, sessions de
-scan, journal d'activité), les fonctions RPC derrière **chaque bouton** de l'application
-(`create_purchase`, `create_sale`, `add_purchase_payment`, `pay_worker_salary`, …), la sécurité RLS, et
-les vues d'analyse (`v_dashboard_kpis`, `v_caisse_ledger`, `v_product_sales_stats`, `v_category_stats`,
-`period_summary(…)`). Un en-tête du fichier détaille la correspondance **écran → SQL**.
-
-Les identifiants sont dans `.env` (`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`) avec repli codé en dur
-pour que le build `dist/` fonctionne sans fichier `.env`.
-
-## Connexion
-
-- **Premier lancement** : le bouton **« Créer un compte Admin »** est affiché tant qu'aucun
-  administrateur n'existe (vérifié côté serveur via `admin_exists()`). Dès que le compte est créé, le
-  bouton disparaît définitivement, sur tous les postes.
-- Le compte est créé dans la **table d'authentification Supabase** (`auth.users`) : l'admin se connecte
-  ensuite directement avec son email **ou** son nom d'utilisateur.
-- **Employés** : dans la fiche employé, cochez « Compte de connexion » et saisissez email + mot de passe.
-  Le compte est créé dans `auth.users` avec les permissions accordées — l'employé se connecte
-  immédiatement à son espace.
-- ⚠️ **Une connexion au serveur est requise** : l'application n'affiche plus aucune donnée locale, tout
-  vient de Supabase (voir « Fonctionnement des données »).
-
-## Modules
-
-Dashboard · Gestion de Stock · Achats · **Production** · Point de Vente (POS) · Ventes · Clients · Fournisseurs · Employés · Dépenses · Caisse · Rapports · Paramètres.
-
-### Vente au détail — flacon de parfum vendu au millilitre
-
-Un produit peut être vendu **à l'unité** *et* **par portion de son contenu** :
-
-1. **Fiche produit** (Stock → Nouveau produit) → *Activer la vente au détail* : contenance totale d'une
-   unité (100 ml), unité de mesure (`ml`, `g`, `L`… — créables sur place), portion vendue (10 ml) et prix
-   de cette portion (1000 DA).
-2. **Achat** : chaque ligne d'achat peut activer/ajuster ces réglages (contenance, portion, prix de la
-   portion) ; ils sont poussés sur le produit à l'enregistrement.
-3. **Caisse** : cliquer sur un produit au détail demande *combien ?* — le prix suit la quantité
-   (25 ml = 2500 DA). L'unité entière reste vendable en un clic.
-4. **Stock déduit** : la vente puise d'abord dans le **flacon entamé**, puis ouvre un flacon scellé. Le
-   stock affiche donc « **2 × 100 ml + 45 ml** » : deux flacons pleins et 45 ml dans celui du comptoir.
-
-### Production — fiches techniques & lots fabriqués
-
-Deux écrans sous l'onglet **Production** :
-
-- **Fiches techniques** — la recette d'un article : produits consommés (unités entières ou contenu, ex.
-  30 ml d'essence), quantité produite et prix de vente unitaire. La fiche affiche le coût de chaque
-  composant, le coût total, la recette attendue et le bénéfice. **Créer une fiche ne touche jamais au
-  stock.** Cartes avec *voir · modifier · supprimer · lancer la production*.
-- **Productions** — on recherche une fiche par son nom, elle charge composants, quantité produite et
-  prix. Changer la quantité produite **remet la recette à l'échelle automatiquement** et recalcule coût
-  et bénéfice. À l'enregistrement, **les quantités utilisées sont déduites du stock**. Chaque lot offre
-  *voir · modifier · supprimer · **récupérer*** (remise en stock de tous les composants).
-
-Au **POS**, un onglet *Stock de production* liste les lots avec leurs unités restantes, et le bouton
-**Production rapide** permet de lancer une fiche technique sans quitter la caisse : le stock est déduit
-et l'article part directement dans le panier.
-
-**Caisse** et **Rapports** détaillent le coût de production, le bénéfice attendu, le **bénéfice réalisé**
-sur les unités vendues, les matières consommées et l'état des flacons entamés.
-
-### Scanner les produits avec le téléphone (POS)
-
-Dans le **Point de Vente**, le bouton **« Scanner avec mon téléphone »** ouvre une session d'appairage :
-
-1. Un **QR code** s'affiche sur la caisse.
-2. Le téléphone le flashe et ouvre la page `/scan/<session>` (aucun compte requis).
-3. Chaque code-barres filmé est envoyé à la caisse **en temps réel** (Supabase Realtime + repli par
-   interrogation toutes les 1,5 s) et le produit correspondant est **ajouté au panier de la facture**.
-
-Autres modes de saisie disponibles au même endroit : la **caméra du poste** (PC / tablette) et la saisie
-manuelle. Une douchette USB fonctionne aussi en tapant dans le champ de recherche (validation par Entrée).
-
-> Le téléphone doit pouvoir joindre l'application : le serveur de dev écoute sur le réseau local
-> (`npm run dev` affiche l'adresse `http://192.168.x.x:5175`). Si la caisse est ouverte sur `localhost`,
-> la fenêtre de scan propose de saisir l'adresse réseau du PC une fois pour toutes.
-
-### Dates d'expiration (cosmétiques)
-
-- À l'achat (ou dans la fiche produit), on peut **activer / désactiver** le suivi de la date d'expiration par produit.
-- Les produits concernés affichent leur date d'expiration sur leur **carte de stock** (pastille colorée : vert = OK, ambre = bientôt, rouge = expiré).
-- Le **tableau de bord** et la cloche de notifications listent les produits **bientôt expirés** (≤ 30 jours) et **expirés**.
-
-Chaque action met à jour l'état global (Zustand) et se reflète immédiatement dans toutes les vues liées : un achat met le stock à jour, une vente le décrémente, les dettes alimentent le dashboard et les rapports, etc.
-
-## Stack
-
-React Router v6 · Zustand (persist) · Supabase (Auth · Postgres · Realtime) · React Hook Form + Zod ·
-Recharts · Framer Motion · date-fns · lucide-react · react-hot-toast · JsBarcode · qrcode ·
-@zxing/browser · react-to-print · TailwindCSS.
+Icône : `public\altech-pos.svg` ; le fichier `.ico` du raccourci se régénère avec
+`.venv\Scripts\python.exe scripts\make-icon.py`.
 
 ## Structure
 
 ```
-supabase_schema.sql                       schéma SQL complet (tables, RPC, RLS, vues) — install neuve
-supabase_migration_retail_production.sql  mise à jour d'une base existante (détail + production)
-src/
-├── lib/           supabase (client), cloud (repo + mappers), sync, scanSession, usePhoneScan
-├── i18n/          traductions FR/AR + hook useTranslation
-├── store/         stores Zustand (auth, products, purchases, sales, ...) — miroir cloud
-├── data/          données initiales (seed)
-├── types/         interfaces TypeScript
-├── components/    layout (sidebar, header) + ui + shared (barcode, print, paiement, scanner)
-├── pages/         une page par module de la sidebar + /scan (page téléphone)
-└── utils/         calculs financiers, animations, helpers, export/import
+server/            serveur hors ligne (Node, sans dépendance) : base locale, API, relais du scanner
+scripts/           lanceur du raccourci, préparation (install/build), création du raccourci, icône
+src/lib/           database (chargement + sauvegarde automatique des stores), password, scanSession
+src/store/         stores Zustand (produits, ventes, achats, comptes…)
+src/pages/         un écran par module + /scan (page du téléphone)
+src/components/    layout (barre d'icônes, menu, en-tête, raccourcis) + ui + shared
+src/utils/         calculs, vente en détail (retail.ts), export / import
 ```
-
-### Fonctionnement des données — Supabase est la seule source
-
-**Aucune donnée métier n'est stockée ni lue dans le navigateur.** Les stores Zustand ne sont qu'un cache
-mémoire, rempli **uniquement** par un téléchargement depuis Supabase :
-
-| Étape | Ce qui se passe |
-|---|---|
-| Connexion / rafraîchissement (F5) | `syncFromCloud()` télécharge toute la boutique depuis Postgres et remplit les écrans |
-| Clic sur un bouton (créer, modifier, supprimer, payer…) | mise à jour immédiate à l'écran **+** écriture Supabase via une **file sérialisée** (les clés étrangères arrivent toujours dans le bon ordre) |
-| Écriture refusée par la base | message d'erreur + **re-téléchargement automatique** : l'écran ne peut pas conserver une ligne que le serveur a rejetée |
-| Modification depuis un autre poste / le téléphone | reçue en **temps réel** (Realtime sur toutes les tables) → les écrans se rafraîchissent |
-| Retour sur l'onglet | rafraîchissement automatique |
-| Déconnexion | les écrans sont vidés (`clearShopState`) |
-
-Seules trois clés restent dans le navigateur, et aucune ne contient de données de la boutique :
-`cosmetics-lang` (langue), `cosmetics-scan-base` (adresse du téléphone pour le scanner) et le jeton de
-session Supabase.
-
-> **Migration automatique** : si ce navigateur contient encore les données de l'ancienne version
-> (100 % locale) et que le projet Supabase est vide, elles sont **envoyées vers Supabase** à la première
-> connexion, puis rechargées depuis le serveur. Les anciennes clés sont conservées intactes par sécurité.
-
-**Sauvegarde / Restauration** (Paramètres → Base de Données) passe aussi par le serveur : l'export est un
-extrait frais de la base, et l'import réécrit le fichier dans Supabase avant de recharger les écrans.
-
-## Notes
-
-- **Sauvegarde / Restauration** : Paramètres → Base de Données (export/import JSON).
-- **Impression** : factures d'achat / vente et rapports au format A4 avec en-tête du magasin (NIF/NIS/RC).
-- **Codes-barres** : génération EAN-13 + impression depuis la fiche produit.
-- Les données seed sont calculées en dates relatives à aujourd'hui pour que le tableau de bord soit toujours peuplé.
-- Pour repartir de zéro : videz le `localStorage` du navigateur (clés `cosmetics-*`).

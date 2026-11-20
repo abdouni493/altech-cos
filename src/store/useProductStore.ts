@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import type { Product } from '@/types'
 import { uid } from '@/utils/helpers'
-import { remote } from '@/lib/cloud'
-import { consumeContent, restoreContent, isDivisible } from '@/utils/retail'
+import { consumeContent, restoreContent, isDivisible, openOneBox } from '@/utils/retail'
 
 interface ProductState {
   products: Product[]
@@ -36,6 +35,8 @@ interface ProductState {
   consumeRetail: (productId: string, amount: number) => void
   /** Give a fraction back (sale cancelled, production recovered). */
   restoreRetail: (productId: string, amount: number) => void
+  /** Break a sealed box at the counter: its content becomes loose pieces. */
+  openBox: (productId: string) => boolean
   /** Production consumption — whole units, or content when `byContent`. */
   consumeComponent: (productId: string, quantity: number, byContent?: boolean) => void
   restoreComponent: (productId: string, quantity: number, byContent?: boolean) => void
@@ -53,21 +54,16 @@ export const useProductStore = create<ProductState>()(
     addProduct: (data) => {
       const product: Product = { ...data, id: uid('p'), createdAt: new Date().toISOString() }
       set((s) => ({ products: [product, ...s.products] }))
-      remote.products.save(product)
       return product
     },
     updateProduct: (id, data) => {
       set((s) => ({
         products: s.products.map((p) => (p.id === id ? { ...p, ...data } : p)),
       }))
-      remote.products.patch(id, data)
     },
     deleteProduct: (id) => {
       set((s) => ({ products: s.products.filter((p) => p.id !== id) }))
-      remote.products.remove(id)
     },
-    // Stock movements are written server-side by create_purchase() / create_sale()
-    // so the cloud quantity stays authoritative and transactional.
     receiveStock: (productId, qty, patch) =>
       set((s) => ({
         products: s.products.map((p) =>
@@ -120,6 +116,13 @@ export const useProductStore = create<ProductState>()(
           p.id === productId && isDivisible(p) ? { ...p, ...restoreContent(p, amount) } : p,
         ),
       })),
+    openBox: (productId) => {
+      const product = get().products.find((p) => p.id === productId)
+      const next = product ? openOneBox(product) : null
+      if (!next) return false
+      set((s) => ({ products: s.products.map((p) => (p.id === productId ? { ...p, ...next } : p)) }))
+      return true
+    },
     consumeComponent: (productId, quantity, byContent) => {
       const product = get().products.find((p) => p.id === productId)
       if (!product) return
@@ -140,19 +143,16 @@ export const useProductStore = create<ProductState>()(
     addBrand: (name) =>
       set((s) => {
         if (s.brands.includes(name)) return s
-        remote.products.addBrand(name)
         return { brands: [...s.brands, name] }
       }),
     addCategory: (name) =>
       set((s) => {
         if (s.categories.includes(name)) return s
-        remote.products.addCategory(name)
         return { categories: [...s.categories, name] }
       }),
     addUnit: (name) =>
       set((s) => {
         if (s.units.includes(name)) return s
-        remote.products.addUnit(name)
         return { units: [...s.units, name] }
       }),
   }),

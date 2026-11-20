@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { useWorkerStore } from '@/store/useWorkerStore'
 import { useTranslation } from '@/i18n/useTranslation'
-import { cloudErrorMessage } from '@/lib/supabase'
+import { authErrorMessage } from '@/store/useAuthStore'
 import type { Worker, SalaryType } from '@/types'
 
 interface Props {
@@ -88,20 +88,20 @@ export const WorkerFormModal = ({ open, onClose, worker }: Props) => {
         ? (updateWorker(worker.id, payload), worker.id)
         : addWorker({ ...payload, permissions: {} }).id
 
-      // The login account really lives in Supabase `auth.users` — the employee
+      // The login account is stored in the local database — the employee
       // signs in with this email/password and gets their own permissions.
       if (form.hasAccount && form.password.trim()) {
         try {
           await provisionAccount(workerId, form.password.trim())
           toast.success(t('workerAccountReady'))
         } catch (e) {
-          toast.error(cloudErrorMessage(e))
+          toast.error(authErrorMessage(e))
         }
       } else if (!form.hasAccount && worker?.hasAccount) {
         try {
           await revokeAccount(worker.id)
         } catch (e) {
-          toast.error(cloudErrorMessage(e))
+          toast.error(authErrorMessage(e))
         }
       }
 

@@ -6,7 +6,6 @@ import {
   subscribeScans,
   type ScanSession,
 } from './scanSession'
-import { cloudErrorMessage } from './supabase'
 
 export type PhoneScanStatus = 'off' | 'starting' | 'waiting' | 'connected' | 'error'
 
@@ -63,7 +62,7 @@ export const usePhoneScan = (onBarcode: (barcode: string) => void): PhoneScanSta
       })
     } catch (e) {
       setStatus('error')
-      setError(cloudErrorMessage(e))
+      setError((e as Error).message === 'Failed to fetch' ? 'Serveur local injoignable' : (e as Error).message)
     }
   }, [])
 

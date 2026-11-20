@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
@@ -10,12 +10,13 @@ import {
   ShoppingBag,
   UserPlus,
   Check,
-  SprayCan,
+  Package,
   ScanLine,
   Smartphone,
-  Beaker,
-  FlaskConical,
-  Zap,
+  PackageOpen,
+  PauseCircle,
+  PlayCircle,
+  Banknote,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { Button } from '@/components/ui/Button'
@@ -23,7 +24,6 @@ import { Input } from '@/components/ui/Input'
 import { PhoneScanModal, type ScanFeedItem } from '@/components/shared/PhoneScanModal'
 import { beep } from '@/components/shared/CameraScanner'
 import { RetailSaleModal } from './RetailSaleModal'
-import { QuickProductionModal } from './QuickProductionModal'
 import { usePhoneScan } from '@/lib/usePhoneScan'
 import { useProductStore } from '@/store/useProductStore'
 import { useClientStore } from '@/store/useClientStore'
@@ -31,7 +31,8 @@ import { useSalesStore } from '@/store/useSalesStore'
 import { useProductionStore } from '@/store/useProductionStore'
 import { useTranslation } from '@/i18n/useTranslation'
 import { formatMoney, round2, uid } from '@/utils/helpers'
-import { isDivisible, totalContent, contentUnitPrice, contentUnitCost, capacityOf } from '@/utils/retail'
+import { isDivisible, totalContent, contentUnitPrice, contentUnitCost, capacityOf, stockUnitName } from '@/utils/retail'
+import { isTypingTarget } from '@/components/layout/Layout'
 import { productionRemaining, productionUnitCost } from '@/utils/calculations'
 import type { Client, Product, Production, SaleLine } from '@/types'
 import { format } from 'date-fns'
@@ -48,7 +49,38 @@ interface CartItem extends SaleLine {
   step: number
 }
 
-type Catalog = 'products' | 'production'
+/** A cart parked with F8 to serve another customer, restored later. */
+interface HeldSale {
+  id: string
+  at: string
+  cart: CartItem[]
+  clientId: string | null
+  label: string
+  total: number
+}
+
+const HELD_KEY = 'altech-held-sales'
+const readHeld = (): HeldSale[] => {
+  try {
+    return JSON.parse(localStorage.getItem(HELD_KEY) ?? '[]')
+  } catch {
+    return []
+  }
+}
+const writeHeld = (list: HeldSale[]) => {
+  try {
+    localStorage.setItem(HELD_KEY, JSON.stringify(list))
+  } catch {
+    /* storage full / private mode — parking just won't survive a reload */
+  }
+}
+
+/** "3*6130…" → 3 × the scanned article (classic till multiplier). */
+const parseMultiplier = (raw: string): { qty: number; code: string } => {
+  const m = raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*[*xX×]\s*(.+)$/)
+  if (!m) return { qty: 1, code: raw.trim() }
+  return { qty: Math.max(0, Number(m[1].replace(',', '.'))), code: m[2].trim() }
+}
 
 export const POSPage = () => {
   const { t } = useTranslation()
@@ -60,7 +92,6 @@ export const POSPage = () => {
   const productions = useProductionStore((s) => s.productions)
   const addSoldUnits = useProductionStore((s) => s.addSoldUnits)
 
-  const [catalog, setCatalog] = useState<Catalog>('products')
   const [search, setSearch] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [client, setClient] = useState<Client | null>(null)
@@ -74,20 +105,24 @@ export const POSPage = () => {
   const [showScanner, setShowScanner] = useState(false)
   const [scanFeed, setScanFeed] = useState<ScanFeedItem[]>([])
   const [retailProduct, setRetailProduct] = useState<Product | null>(null)
-  const [showQuickProduction, setShowQuickProduction] = useState(false)
+  const [held, setHeld] = useState<HeldSale[]>(readHeld)
+  const [showHeld, setShowHeld] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const clientRef = useRef<HTMLInputElement>(null)
+  const discountRef = useRef<HTMLInputElement>(null)
+  const receivedRef = useRef<HTMLInputElement>(null)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return products.filter((p) => !q || p.name.toLowerCase().includes(q) || p.barcode.includes(q))
+    return products.filter(
+      (p) =>
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.barcode.includes(q) ||
+        (p.retailBarcode ?? '').includes(q) ||
+        p.brand.toLowerCase().includes(q),
+    )
   }, [products, search])
-
-  /** Batches with finished units still available for sale. */
-  const sellableProductions = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return productions
-      .filter((p) => productionRemaining(p) > 0)
-      .filter((p) => !q || p.outputName.toLowerCase().includes(q) || p.reference.toLowerCase().includes(q))
-  }, [productions, search])
 
   const clientSuggestions = useMemo(() => {
     const q = clientQuery.trim().toLowerCase()
@@ -120,9 +155,20 @@ export const POSPage = () => {
         (committed.units.get(p.id) ?? 0) * capacityOf(p),
     )
 
+  /**
+   * Whole units still sellable. For a product sold by detail only SEALED boxes
+   * leave whole — and never more than the content left once the pieces already
+   * in the cart are served.
+   */
   const remainingUnits = (p: Product): number =>
     isDivisible(p)
-      ? Math.floor(remainingContent(p) / (capacityOf(p) || 1))
+      ? Math.max(
+          0,
+          Math.min(
+            p.quantity - (committed.units.get(p.id) ?? 0),
+            Math.floor(remainingContent(p) / (capacityOf(p) || 1)),
+          ),
+        )
       : p.quantity - (committed.units.get(p.id) ?? 0)
 
   const remainingBatch = (b: Production): number =>
@@ -130,27 +176,27 @@ export const POSPage = () => {
 
   // ---- Adding to the cart ---------------------------------------------------
 
-  /** One whole unit of a product (a sealed bottle, a jar, a box…). */
-  const addToCart = (productId: string) => {
+  /** Whole units of a product (a sealed box, a bottle, a jar…). */
+  const addToCart = (productId: string, qty = 1): boolean => {
     const p = products.find((x) => x.id === productId)
-    if (!p) return
-    if (remainingUnits(p) <= 0) {
+    if (!p || qty <= 0) return false
+    if (remainingUnits(p) < qty) {
       toast.error(t('outOfStock'))
-      return
+      return false
     }
     const key = `unit:${p.id}`
     setCart((prev) => {
       const existing = prev.find((l) => l._key === key)
       if (existing)
-        return prev.map((l) => (l._key === key ? { ...l, quantity: l.quantity + 1 } : l))
+        return prev.map((l) => (l._key === key ? { ...l, quantity: l.quantity + qty } : l))
       return [
         ...prev,
         {
           _key: key,
           productId: p.id,
-          productName: p.name,
+          productName: isDivisible(p) ? `${p.name} (${stockUnitName(p)})` : p.name,
           barcode: p.barcode,
-          quantity: 1,
+          quantity: qty,
           unitPrice: p.salePrice,
           unitCost: p.purchasePrice,
           kind: 'product',
@@ -159,6 +205,7 @@ export const POSPage = () => {
         },
       ]
     })
+    return true
   }
 
   /** A fraction of a divisible product: 25 ml out of a 100 ml bottle. */
@@ -257,10 +304,12 @@ export const POSPage = () => {
    * article is served one standard portion at a time.
    */
   const handleBarcode = (barcode: string, source: 'phone' | 'local') => {
-    const code = barcode.trim()
-    const product =
-      products.find((p) => p.barcode === code) ??
-      products.find((p) => p.barcode.replace(/^0+/, '') === code.replace(/^0+/, ''))
+    const { qty, code } = parseMultiplier(barcode)
+    const same = (a: string | undefined, b: string) =>
+      !!a && (a === b || a.replace(/^0+/, '') === b.replace(/^0+/, ''))
+    // The barcode printed on ONE piece sells one portion straight away.
+    const pieceProduct = products.find((p) => isDivisible(p) && same(p.retailBarcode, code))
+    const product = pieceProduct ?? products.find((p) => same(p.barcode, code))
 
     const entry: ScanFeedItem = {
       id: uid('scan'),
@@ -277,26 +326,33 @@ export const POSPage = () => {
       return
     }
 
-    const retail = isDivisible(product) && (product.retailStep ?? 0) > 0
-    if (retail) {
-      if (remainingContent(product) < (product.retailStep ?? 0)) {
+    if (pieceProduct) {
+      const amount = round2((product.retailStep || 1) * qty)
+      if (remainingContent(product) < amount) {
         beep(false)
         toast.error(`${product.name} — ${t('notEnoughContent')}`)
         return
       }
       beep(true)
-      addRetailToCart(product, product.retailStep ?? 0)
+      addRetailToCart(product, amount)
       return
     }
 
-    if (remainingUnits(product) <= 0) {
+    // The box barcode of a product sold by detail: ask "box or detail?".
+    if (isDivisible(product) && qty === 1 && source === 'local') {
+      beep(true)
+      setRetailProduct(product)
+      return
+    }
+
+    if (remainingUnits(product) < qty) {
       beep(false)
       toast.error(`${product.name} — ${t('outOfStock')}`)
       return
     }
     beep(true)
-    addToCart(product.id)
-    toast.success(`${product.name} · ${formatMoney(product.salePrice)}`, { duration: 1400 })
+    if (addToCart(product.id, qty))
+      toast.success(`${qty > 1 ? `${qty} × ` : ''}${product.name} · ${formatMoney(round2(product.salePrice * qty))}`, { duration: 1400 })
   }
 
   const phone = usePhoneScan((barcode) => handleBarcode(barcode, 'phone'))
@@ -358,6 +414,51 @@ export const POSPage = () => {
 
   const creditBlocked = rest > 0 && !client
 
+  /** F8 — park the current cart to serve the next customer. */
+  const holdSale = () => {
+    if (cart.length === 0) {
+      toast.error(t('emptyCart'))
+      return
+    }
+    const entry: HeldSale = {
+      id: uid('hold'),
+      at: new Date().toISOString(),
+      cart,
+      clientId: client?.id ?? null,
+      label: client?.name ?? `${t('ticket')} ${held.length + 1}`,
+      total,
+    }
+    const next = [entry, ...held].slice(0, 20)
+    setHeld(next)
+    writeHeld(next)
+    resetSale()
+    toast.success(t('saleHeld'))
+    searchRef.current?.focus()
+  }
+
+  const recallSale = (entry: HeldSale) => {
+    if (cart.length > 0) {
+      toast.error(t('finishCurrentSaleFirst'))
+      return
+    }
+    // Quantities are re-checked against the shelf of now, not of when it was parked.
+    setCart(entry.cart)
+    const c = clients.find((x) => x.id === entry.clientId) ?? null
+    setClient(c)
+    setWalkIn(!c)
+    const next = held.filter((h) => h.id !== entry.id)
+    setHeld(next)
+    writeHeld(next)
+    setShowHeld(false)
+  }
+
+  /** Cash notes the customer usually hands over, from the exact amount up. */
+  const quickCash = useMemo(() => {
+    if (total <= 0) return []
+    const ups = [100, 500, 1000, 2000].map((n) => Math.ceil(total / n) * n)
+    return [...new Set([total, ...ups])].filter((v) => v >= total).slice(0, 4)
+  }, [total])
+
   const validate = () => {
     if (cart.length === 0) {
       toast.error(t('emptyCart'))
@@ -392,7 +493,67 @@ export const POSPage = () => {
     })
     toast.success(t('saleValidated'))
     resetSale()
+    searchRef.current?.focus()
   }
+
+  // Till shortcuts — see the F1 help sheet.
+  const shortcutRef = useRef<(e: KeyboardEvent) => void>()
+  shortcutRef.current = (e: KeyboardEvent) => {
+    if (retailProduct || showScanner) return
+    const typing = isTypingTarget(e.target)
+    const last = cart[cart.length - 1]
+    switch (e.key) {
+      case 'F2':
+        e.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+        return
+      case 'F4':
+        e.preventDefault()
+        setWalkIn(false)
+        window.setTimeout(() => clientRef.current?.focus(), 30)
+        return
+      case 'F6':
+        e.preventDefault()
+        setDiscountOn(true)
+        window.setTimeout(() => discountRef.current?.select(), 30)
+        return
+      case 'F7':
+        e.preventDefault()
+        receivedRef.current?.select()
+        return
+      case 'F8':
+        e.preventDefault()
+        holdSale()
+        return
+      case 'F9':
+        e.preventDefault()
+        validate()
+        return
+      case 'Enter':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault()
+          validate()
+        }
+        return
+    }
+    if (typing || !last) return
+    if (e.key === '+' || e.key === 'Add') {
+      e.preventDefault()
+      changeQty(last._key, 1)
+    } else if (e.key === '-' || e.key === 'Subtract') {
+      e.preventDefault()
+      changeQty(last._key, -1)
+    } else if (e.key === 'Delete') {
+      e.preventDefault()
+      removeItem(last._key)
+    }
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => shortcutRef.current?.(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div>
@@ -401,9 +562,10 @@ export const POSPage = () => {
         subtitle={format(new Date(), 'dd/MM/yyyy HH:mm')}
         actions={
           <>
-            <Button variant="sage" onClick={() => setShowQuickProduction(true)} title={t('quickProductionHint')}>
-              <Zap size={18} />
-              <span className="hidden sm:inline">{t('quickProduction')}</span>
+            <Button variant="outline" onClick={() => setShowHeld((v) => !v)} title={t('heldSales')} disabled={held.length === 0}>
+              <PlayCircle size={18} />
+              <span className="hidden sm:inline">{t('heldSales')}</span>
+              {held.length > 0 && <span className="rounded-md bg-gold px-1.5 text-xs font-bold text-wood-dark">{held.length}</span>}
             </Button>
             <Button
               variant={phone.status === 'connected' ? 'sage' : 'gold'}
@@ -420,52 +582,60 @@ export const POSPage = () => {
         }
       />
 
+      {showHeld && held.length > 0 && (
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {held.map((h) => (
+            <button
+              key={h.id}
+              onClick={() => recallSale(h)}
+              className="card-wood card-hover flex items-center gap-3 rounded-xl p-3 text-start"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gold/15 text-[#B45309]">
+                <PauseCircle size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold text-wood-dark">{h.label}</p>
+                <p className="text-xs text-wood-medium">
+                  {format(new Date(h.at), 'HH:mm')} · {h.cart.length} {t('articles')}
+                </p>
+              </div>
+              <span className="text-mono text-sm font-bold text-wood-warm">{formatMoney(h.total)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         {/* Catalog */}
         <div className="lg:col-span-3">
           <div className="mb-4 flex gap-2">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-wood-medium/50" size={18} />
+              <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-wood-medium/60" size={18} />
+              <span className="kbd pointer-events-none absolute end-3 top-1/2 -translate-y-1/2">F2</span>
               <input
+                ref={searchRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
                   // a USB barcode gun ends its emission with Enter
-                  if (e.key === 'Enter' && search.trim()) {
-                    handleBarcode(search.trim(), 'local')
+                  if (e.key === 'Enter' && search.trim() && !e.ctrlKey) {
+                    // a single visible match is picked as if it had been clicked
+                    const { qty, code } = parseMultiplier(search)
+                    const exact = products.some((p) => p.barcode === code || p.retailBarcode === code)
+                    if (!exact && filtered.length === 1 && qty === 1) openProduct(filtered[0])
+                    else handleBarcode(search.trim(), 'local')
                     setSearch('')
                   }
+                  if (e.key === 'Escape') setSearch('')
                 }}
-                placeholder={`${t('search')} (${t('productName')} / ${t('barcode')})`}
-                className="input-wood ps-10"
+                placeholder={t('posSearchPlaceholder')}
+                className="input-wood h-12 pe-12 ps-10 text-base"
                 autoFocus
               />
             </div>
-            <Button variant="outline" size="icon" onClick={() => setShowScanner(true)} title={t('scanBarcode')}>
+            <Button variant="outline" size="icon" className="!h-12 !w-12" onClick={() => setShowScanner(true)} title={t('scanBarcode')}>
               <ScanLine size={20} />
             </Button>
-          </div>
-
-          {/* Stock products vs finished batches */}
-          <div className="mb-3 inline-flex rounded-xl border border-wood-light/40 bg-white/70 p-1">
-            {([
-              { k: 'products', l: t('products'), icon: <SprayCan size={15} />, n: filtered.length },
-              { k: 'production', l: t('productionStock'), icon: <FlaskConical size={15} />, n: sellableProductions.length },
-            ] as const).map((o) => (
-              <button
-                key={o.k}
-                onClick={() => setCatalog(o.k)}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-                  catalog === o.k ? 'bg-wood-btn text-white shadow-wood' : 'text-wood-medium hover:bg-wood-cream'
-                }`}
-              >
-                {o.icon}
-                {o.l}
-                <span className={`rounded-full px-1.5 text-[10px] ${catalog === o.k ? 'bg-white/25' : 'bg-wood-cream'}`}>
-                  {o.n}
-                </span>
-              </button>
-            ))}
           </div>
 
           {phone.status === 'connected' && (
@@ -478,11 +648,11 @@ export const POSPage = () => {
             </div>
           )}
 
-          {catalog === 'products' ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
               {filtered.map((p, i) => {
                 const retail = isDivisible(p)
                 const left = retail ? remainingContent(p) : remainingUnits(p)
+                const low = p.quantity <= p.minQuantity
                 return (
                   <motion.button
                     key={p.id}
@@ -492,90 +662,55 @@ export const POSPage = () => {
                     whileTap={{ scale: 0.97 }}
                     onClick={() => openProduct(p)}
                     disabled={left <= 0}
-                    className="card-wood flex flex-col overflow-hidden rounded-2xl p-3 text-start disabled:opacity-50"
+                    className="card-wood card-hover flex flex-col overflow-hidden rounded-xl p-3 text-start disabled:opacity-50"
                   >
-                    <div className="relative mb-2 flex h-20 items-center justify-center rounded-xl bg-wood-cream/60 text-wood-light">
-                      <SprayCan size={32} />
+                    <div className="relative mb-2 flex h-16 items-center justify-center rounded-lg bg-gradient-to-br from-wood-cream to-white text-wood-warm/70 ring-1 ring-woodborder">
+                      {retail ? <PackageOpen size={28} /> : <Package size={28} />}
                       {retail && (
-                        <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-1.5 py-0.5 text-[9px] font-bold text-wood-warm">
-                          <Beaker size={10} />
-                          {p.unit}
+                        <span className="absolute end-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-wood-warm px-1.5 py-0.5 text-[9px] font-bold text-white">
+                          {t('detailBadge')}
                         </span>
                       )}
-                    </div>
-                    <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold text-wood-dark">{p.name}</p>
-                    <div className="mt-1 flex items-center justify-between gap-1">
-                      <span className="text-mono truncate font-bold text-sage">
-                        {retail && (p.retailStep ?? 0) > 0
-                          ? `${formatMoney(p.retailPrice ?? 0)} / ${p.retailStep}${p.unit ?? ''}`
-                          : formatMoney(p.salePrice)}
-                      </span>
-                      <span className={`shrink-0 text-xs ${p.quantity <= p.minQuantity ? 'text-terracotta' : 'text-wood-medium'}`}>
-                        {retail ? `${left} ${p.unit ?? ''}` : left}
+                      <span className={`absolute bottom-1.5 start-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${left <= 0 ? 'bg-terracotta text-white' : low ? 'bg-gold/20 text-[#B45309]' : 'bg-white text-wood-medium ring-1 ring-woodborder'}`}>
+                        {retail ? `${remainingUnits(p)} ${stockUnitName(p, remainingUnits(p) > 1)}` : left}
                       </span>
                     </div>
+                    <p className="line-clamp-2 min-h-[2.5rem] text-sm font-bold leading-snug text-wood-dark">{p.name}</p>
+                    <span className="text-mono mt-1 truncate text-sm font-bold text-wood-warm">{formatMoney(p.salePrice)}</span>
                     {retail && (
-                      <span className="mt-0.5 text-[10px] text-wood-medium/70">
-                        {p.quantity} × {capacityOf(p)} {p.unit}
-                        {(p.openRemaining ?? 0) > 0 && ` + ${round2(p.openRemaining ?? 0)} ${p.unit}`}
+                      <span className="mt-0.5 flex items-center justify-between gap-1 text-[10px] text-wood-medium">
+                        <span className="text-mono font-semibold text-sage">
+                          {formatMoney(contentUnitPrice(p))}/{p.unit}
+                        </span>
+                        <span>
+                          {(p.openRemaining ?? 0) > 0 ? `+${round2(p.openRemaining ?? 0)} ${p.unit}` : `${left} ${p.unit}`}
+                        </span>
                       </span>
                     )}
                   </motion.button>
                 )
               })}
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-              {sellableProductions.length === 0 ? (
-                <div className="col-span-full rounded-2xl border border-dashed border-wood-light/40 py-10 text-center">
-                  <FlaskConical size={32} className="mx-auto mb-2 text-wood-light" />
-                  <p className="text-sm text-wood-medium">{t('noProduction')}</p>
-                  <Button variant="sage" size="sm" className="mt-3" onClick={() => setShowQuickProduction(true)}>
-                    <Zap size={15} />
-                    {t('quickProduction')}
-                  </Button>
-                </div>
-              ) : (
-                sellableProductions.map((b, i) => {
-                  const left = remainingBatch(b)
-                  return (
-                    <motion.button
-                      key={b.id}
-                      initial={{ opacity: 0, scale: 0.92 }}
-                      animate={{ opacity: 1, scale: 1, transition: { delay: i * 0.02 } }}
-                      whileHover={{ y: -3 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => addProductionToCart(b)}
-                      disabled={left <= 0}
-                      className="card-wood flex flex-col overflow-hidden rounded-2xl p-3 text-start disabled:opacity-50"
-                    >
-                      <div className="mb-2 flex h-20 items-center justify-center rounded-xl bg-gradient-to-br from-violet-100 to-fuchsia-100 text-violet-500">
-                        <FlaskConical size={32} />
-                      </div>
-                      <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold text-wood-dark">
-                        {b.outputName || b.sheetName}
-                      </p>
-                      <div className="mt-1 flex items-center justify-between">
-                        <span className="text-mono font-bold text-sage">{formatMoney(b.outputUnitPrice)}</span>
-                        <span className="text-xs text-wood-medium">{left}</span>
-                      </div>
-                      <span className="text-mono mt-0.5 truncate text-[10px] text-wood-medium/70">
-                        {b.reference} · {t('unitCost')} {formatMoney(productionUnitCost(b))}
-                      </span>
-                    </motion.button>
-                  )
-                })
-              )}
-            </div>
-          )}
         </div>
 
         {/* Cart */}
         <div className="lg:col-span-2">
-          <div className="card-wood sticky top-4 flex max-h-[calc(100vh-8rem)] flex-col rounded-2xl">
-            <div className="flex items-center justify-between rounded-t-2xl bg-wood-header px-4 py-3 text-white">
-              <h3 className="flex items-center gap-2 text-display text-lg font-bold"><ShoppingBag size={20} />{t('cart')}</h3>
-              {cart.length > 0 && <button onClick={resetSale} className="rounded-lg p-1 hover:bg-white/15"><Trash2 size={18} /></button>}
+          <div className="card-wood sticky top-0 flex max-h-[calc(100vh-7.5rem)] flex-col overflow-hidden rounded-xl">
+            <div className="wood-grain flex items-center justify-between bg-wood-sidebar px-4 py-3 text-white">
+              <h3 className="relative z-10 flex items-center gap-2 text-display text-base font-bold">
+                <ShoppingBag size={19} />
+                {t('cart')}
+                {cart.length > 0 && <span className="rounded-md bg-white/15 px-1.5 text-xs">{cart.length}</span>}
+              </h3>
+              <div className="relative z-10 flex items-center gap-1">
+                {cart.length > 0 && (
+                  <button onClick={holdSale} title={`${t('holdSale')} (F8)`} className="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold text-white/85 hover:bg-white/10">
+                    <PauseCircle size={16} />
+                    <span className="hidden xl:inline">{t('holdSale')}</span>
+                  </button>
+                )}
+                {cart.length > 0 && <button onClick={resetSale} title={t('delete')} className="flex h-8 w-8 items-center justify-center rounded-md text-white/85 hover:bg-terracotta/30"><Trash2 size={16} /></button>}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -595,7 +730,7 @@ export const POSPage = () => {
                     </div>
                   ) : (
                     <div className="relative">
-                      <input value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder={`${t('client')} (${t('name')} / ${t('phone')})`} className="input-wood py-1.5" />
+                      <input ref={clientRef} value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} placeholder={`${t('client')} (${t('name')} / ${t('phone')}) — F4`} className="input-wood py-1.5" />
                       {clientSuggestions.length > 0 && (
                         <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-wood-light/30 bg-white shadow-wood-lg">
                           {clientSuggestions.map((c) => (
@@ -618,28 +753,31 @@ export const POSPage = () => {
 
               {/* Items */}
               {cart.length === 0 ? (
-                <p className="py-8 text-center text-sm text-wood-medium">{t('emptyCart')}</p>
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-wood-cream text-wood-warm"><ScanLine size={22} /></div>
+                  <p className="text-sm font-semibold text-wood-dark">{t('emptyCart')}</p>
+                  <p className="max-w-[16rem] text-xs text-wood-medium">{t('emptyCartHint')}</p>
+                </div>
               ) : (
                 <div className="space-y-2">
                   <AnimatePresence>
                     {cart.map((l) => (
-                      <motion.div key={l._key} layout initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="rounded-xl bg-wood-cream/30 p-2.5">
+                      <motion.div key={l._key} layout initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="rounded-lg border border-woodborder bg-[#F8FAFD] p-2.5">
                         <div className="flex items-center justify-between gap-2">
                           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium text-wood-dark">
-                            {l.kind === 'retail' && <Beaker size={13} className="shrink-0 text-wood-warm" />}
-                            {l.kind === 'production' && <FlaskConical size={13} className="shrink-0 text-violet-500" />}
+                            {l.kind === 'retail' && <PackageOpen size={13} className="shrink-0 text-wood-warm" />}
                             <span className="truncate">{l.productName}</span>
                           </p>
                           <button onClick={() => removeItem(l._key)} className="text-terracotta"><X size={15} /></button>
                         </div>
                         <div className="mt-1.5 flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <button onClick={() => changeQty(l._key, -1)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-wood-warm shadow-wood"><Minus size={13} /></button>
+                            <button onClick={() => changeQty(l._key, -1)} className="flex h-7 w-7 items-center justify-center rounded-md border border-[#D5DBE8] bg-white text-wood-dark transition hover:border-wood-warm hover:text-wood-warm active:scale-90"><Minus size={13} /></button>
                             <span className="text-mono min-w-[3rem] text-center text-sm font-bold">
                               {l.quantity}
                               {l.kind === 'retail' && <span className="text-[10px] font-normal text-wood-medium"> {l.unit}</span>}
                             </span>
-                            <button onClick={() => changeQty(l._key, 1)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-wood-warm shadow-wood"><Plus size={13} /></button>
+                            <button onClick={() => changeQty(l._key, 1)} className="flex h-7 w-7 items-center justify-center rounded-md border border-[#D5DBE8] bg-white text-wood-dark transition hover:border-wood-warm hover:text-wood-warm active:scale-90"><Plus size={13} /></button>
                           </div>
                           <span className="text-mono text-sm font-bold text-sage">{formatMoney(round2(l.quantity * l.unitPrice))}</span>
                         </div>
@@ -663,13 +801,28 @@ export const POSPage = () => {
                 {t('enableDiscount')}
               </label>
               {discountOn && (
-                <input type="number" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} placeholder={t('discount')} className="input-wood py-1.5" />
+                <input ref={discountRef} type="number" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} placeholder={t('discount')} className="input-wood py-1.5" />
               )}
-              <div className="flex items-center justify-between rounded-xl bg-wood-btn px-3 py-2 text-white">
-                <span className="font-medium">{t('toPay')}</span>
-                <span className="text-mono text-lg font-bold">{formatMoney(total)}</span>
+              <div className="flex items-center justify-between rounded-lg bg-wood-header px-3.5 py-2.5 text-white shadow-rose">
+                <span className="font-semibold">{t('toPay')}</span>
+                <span className="text-mono text-xl font-bold">{formatMoney(total)}</span>
               </div>
-              <Input label={t('received')} type="number" step="0.01" value={received} onChange={(e) => setReceived(Number(e.target.value))} />
+              <Input ref={receivedRef} label={`${t('received')} (F7)`} type="number" step="0.01" value={received} onChange={(e) => setReceived(Number(e.target.value))} />
+              {quickCash.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {quickCash.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setReceived(v)}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold transition ${received === v ? 'border-sage bg-sage text-white' : 'border-[#D5DBE8] bg-white text-wood-medium hover:border-sage hover:text-sage'}`}
+                    >
+                      <Banknote size={12} />
+                      {formatMoney(v)}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-wood-medium">{received >= total ? t('change') : t('remaining')}</span>
                 <span className={`text-mono font-bold ${received >= total ? 'text-sage' : 'text-terracotta'}`}>{formatMoney(received >= total ? change : rest)}</span>
@@ -681,6 +834,7 @@ export const POSPage = () => {
                 disabled={creditBlocked || cart.length === 0}
                 title={creditBlocked ? t('selectClientForCredit') : undefined}
                 onClick={validate}
+                kbd="F9"
               >
                 <Check size={18} />
                 {t('validateSale')}
@@ -704,18 +858,11 @@ export const POSPage = () => {
         onClose={() => setRetailProduct(null)}
         product={retailProduct}
         available={retailProduct ? remainingContent(retailProduct) : 0}
+        availableBoxes={retailProduct ? remainingUnits(retailProduct) : 0}
         onSellRetail={(amount) => retailProduct && addRetailToCart(retailProduct, amount)}
-        onSellWhole={() => retailProduct && addToCart(retailProduct.id)}
+        onSellWhole={(count) => retailProduct && addToCart(retailProduct.id, count)}
       />
 
-      <QuickProductionModal
-        open={showQuickProduction}
-        onClose={() => setShowQuickProduction(false)}
-        onProduced={(production) => {
-          setCatalog('production')
-          addProductionToCart(production, production.outputQuantity)
-        }}
-      />
     </div>
   )
 }

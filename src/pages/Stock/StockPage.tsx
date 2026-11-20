@@ -9,10 +9,11 @@ import {
   Barcode as BarcodeIcon,
   CalendarClock,
   CalendarX,
-  Beaker,
+  PackageOpen,
   Boxes,
   AlertTriangle,
   Coins,
+  Package,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PageHeader, SearchInput, EmptyState, ViewToggle, ProgressBar } from '@/components/ui/Misc'
@@ -29,10 +30,12 @@ import { formatMoney, expiryInfo, round2 } from '@/utils/helpers'
 import { isInStock } from '@/utils/calculations'
 import {
   isDivisible,
-  totalContent,
   contentUnitPrice,
   contentUnitCost,
   capacityOf,
+  shelfBreakdown,
+  stockCountLabel,
+  stockUnitName,
 } from '@/utils/retail'
 import { cardVariants, staggerContainer } from '@/utils/animations'
 import type { Product } from '@/types'
@@ -49,7 +52,7 @@ const ExpiryPill = ({ product, full = false }: { product: Product; full?: boolea
     info.status === 'expired'
       ? 'bg-terracotta/15 text-terracotta border-terracotta/30'
       : info.status === 'soon'
-        ? 'bg-gold/15 text-[#8a6420] border-gold/40'
+        ? 'bg-gold/15 text-[#B45309] border-gold/40'
         : 'bg-sage/12 text-sage border-sage/25'
   const Icon = info.status === 'expired' ? CalendarX : CalendarClock
   const note =
@@ -74,51 +77,81 @@ const ExpiryPill = ({ product, full = false }: { product: Product; full?: boolea
 }
 
 /**
- * Retail stock read-out: how many sealed containers are on the shelf and how
- * much is left in the one currently opened at the counter.
+ * Detail stock read-out: sealed boxes on the shelf and the pieces left in the
+ * box opened at the counter, e.g. "12 boîtes + 7 cigarettes" — with a gauge of
+ * the opened box and a one-click "open a box".
  */
 const RetailStock = ({ product, compact = false }: { product: Product; compact?: boolean }) => {
   const { t } = useTranslation()
+  const openBox = useProductStore((s) => s.openBox)
   if (!isDivisible(product)) return null
-  const unit = product.unit ?? ''
-  const open = round2(product.openRemaining ?? 0)
+  const { boxes, loose, total, capacity, unit, openRatio } = shelfBreakdown(product)
   if (compact)
     return (
       <span className="text-[11px] text-wood-medium">
-        {product.quantity} × {capacityOf(product)} {unit}
-        {open > 0 && <span className="text-wood-warm"> + {open} {unit}</span>}
+        {stockCountLabel(product, boxes)}
+        {loose > 0 && <span className="font-semibold text-wood-warm"> + {loose} {unit}</span>}
       </span>
     )
+  const canOpen = boxes > 0 && loose <= 0
   return (
-    <div className="mt-3 rounded-xl border border-fuchsia-200/60 bg-fuchsia-50/50 p-2.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-wood-warm">
-        <Beaker size={13} />
-        {t('retailSelling')}
+    <div className="mt-3 rounded-lg border border-wood-warm/20 bg-wood-warm/[0.04] p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] font-bold text-wood-warm">
+          <PackageOpen size={13} />
+          {t('retailSelling')}
+        </span>
+        <span className="text-[10px] font-semibold text-wood-medium">
+          1 {stockUnitName(product)} = {capacity} {unit}
+        </span>
       </div>
-      <div className="mt-1.5 grid grid-cols-3 gap-2 text-center">
-        <div>
-          <p className="text-[10px] text-wood-medium">{t('containers')}</p>
-          <p className="text-mono text-sm font-bold text-wood-dark">{product.quantity}</p>
+      <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+        <div className="rounded-md bg-white px-1 py-1.5 ring-1 ring-woodborder">
+          <p className="text-[10px] text-wood-medium">{stockUnitName(product, true)}</p>
+          <p className="text-mono text-sm font-bold text-wood-dark">{boxes}</p>
         </div>
-        <div>
-          <p className="text-[10px] text-wood-medium">{t('openContainer')}</p>
+        <div className="rounded-md bg-white px-1 py-1.5 ring-1 ring-woodborder">
+          <p className="text-[10px] text-wood-medium">{t('openedBox')}</p>
           <p className="text-mono text-sm font-bold text-wood-warm">
-            {open} <span className="text-[10px] font-normal">{unit}</span>
+            {loose}
+            <span className="text-[10px] font-normal text-wood-medium">/{capacity}</span>
           </p>
         </div>
-        <div>
-          <p className="text-[10px] text-wood-medium">{t('totalContent')}</p>
-          <p className="text-mono text-sm font-bold text-sage">
-            {totalContent(product)} <span className="text-[10px] font-normal">{unit}</span>
-          </p>
+        <div className="rounded-md bg-white px-1 py-1.5 ring-1 ring-woodborder">
+          <p className="text-[10px] text-wood-medium">{t('totalWord')} {unit}</p>
+          <p className="text-mono text-sm font-bold text-sage">{total}</p>
         </div>
       </div>
-      {(product.retailStep ?? 0) > 0 && (
-        <p className="mt-1.5 text-center text-[10px] text-wood-medium">
-          {product.retailStep} {unit} = {formatMoney(product.retailPrice ?? 0)} ·{' '}
-          {formatMoney(contentUnitPrice(product))}/{unit}
-        </p>
-      )}
+      {/* gauge of the opened box */}
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white ring-1 ring-woodborder">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${openRatio * 100}%` }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className="h-full rounded-full bg-gradient-to-r from-wood-warm to-aqua"
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        {(product.retailStep ?? 0) > 0 ? (
+          <p className="text-[10px] text-wood-medium">
+            1 {unit} = <b className="text-sage">{formatMoney(contentUnitPrice(product))}</b>
+          </p>
+        ) : (
+          <span />
+        )}
+        {canOpen && (
+          <button
+            type="button"
+            onClick={() => {
+              if (openBox(product.id)) toast.success(`${t('boxOpened')} — ${product.name}`)
+            }}
+            className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-bold text-wood-warm ring-1 ring-wood-warm/30 transition hover:bg-wood-warm hover:text-white"
+          >
+            <PackageOpen size={11} />
+            {t('openABox').replace('{box}', stockUnitName(product))}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -142,7 +175,7 @@ const StockStat = ({
     custom={index}
     initial="initial"
     animate="animate"
-    className="card-wood flex items-center gap-3 rounded-2xl p-3.5"
+    className="card-wood flex items-center gap-3 rounded-xl p-3.5"
   >
     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-wood ${accent}`}>
       {icon}
@@ -233,15 +266,15 @@ export const StockPage = () => {
 
       {/* Summary strip */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StockStat index={0} icon={<SprayCan size={18} />} label={t('products')} value={`${summary.count}`} accent="from-fuchsia-500 to-purple-600" />
+        <StockStat index={0} icon={<SprayCan size={18} />} label={t('products')} value={`${summary.count}`} accent="from-sky-500 to-indigo-600" />
         <StockStat index={1} icon={<Boxes size={18} />} label={t('productsInStock')} value={`${summary.inStock}`} accent="from-wood-warm to-gold" />
-        <StockStat index={2} icon={<Beaker size={18} />} label={t('retailProducts')} value={`${summary.retailCount}`} accent="from-pink-500 to-fuchsia-600" />
-        <StockStat index={3} icon={<AlertTriangle size={18} />} label={t('stockAlerts')} value={`${summary.lowCount}`} accent="from-terracotta to-red-600" />
-        <StockStat index={4} icon={<Coins size={18} />} label={t('stockValue')} value={formatMoney(summary.stockValue)} accent="from-sage to-green-600" />
+        <StockStat index={2} icon={<PackageOpen size={18} />} label={t('retailProducts')} value={`${summary.retailCount}`} accent="from-cyan-500 to-sky-600" />
+        <StockStat index={3} icon={<AlertTriangle size={18} />} label={t('stockAlerts')} value={`${summary.lowCount}`} accent="from-terracotta to-rose-600" />
+        <StockStat index={4} icon={<Coins size={18} />} label={t('stockValue')} value={formatMoney(summary.stockValue)} accent="from-sage to-emerald-500" />
       </div>
 
       {/* Filters */}
-      <div className="card-wood mb-5 space-y-3 rounded-2xl p-4">
+      <div className="card-wood mb-5 space-y-3 rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-3">
           <SearchInput value={search} onChange={setSearch} placeholder={`${t('search')}…`} className="min-w-[220px] flex-1" />
           <Select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="max-w-[200px]">
@@ -290,7 +323,7 @@ export const StockPage = () => {
                 custom={i}
                 layout
                 whileHover={{ y: -5 }}
-                className="card-wood flex flex-col rounded-2xl p-4"
+                className="card-wood card-hover flex flex-col rounded-xl p-4"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -300,9 +333,9 @@ export const StockPage = () => {
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     {stockBadge(p)}
                     {isDivisible(p) && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-300/60 bg-fuchsia-100/60 px-2 py-0.5 text-[10px] font-semibold text-wood-warm">
-                        <Beaker size={11} />
-                        {t('retailSelling')}
+                      <span className="inline-flex items-center gap-1 rounded-md border border-wood-warm/25 bg-wood-warm/10 px-1.5 py-0.5 text-[10px] font-bold text-wood-warm">
+                        <PackageOpen size={11} />
+                        {t('detailBadge')}
                       </span>
                     )}
                   </div>
@@ -332,8 +365,8 @@ export const StockPage = () => {
 
                 <div className="mt-3">
                   <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-wood-medium">{t('quantity')}</span>
-                    <span className="text-mono font-bold text-wood-dark">{p.quantity} <span className="text-wood-medium/60">/ min {p.minQuantity}</span></span>
+                    <span className="flex items-center gap-1 text-wood-medium"><Package size={12} />{t('quantity')}</span>
+                    <span className="text-mono font-bold text-wood-dark">{stockCountLabel(p, p.quantity)} <span className="font-normal text-wood-medium/60">/ min {p.minQuantity}</span></span>
                   </div>
                   <ProgressBar value={p.quantity} max={Math.max(p.minQuantity * 3, p.quantity)} danger={p.quantity <= p.minQuantity} />
                 </div>
@@ -356,10 +389,10 @@ export const StockPage = () => {
           </AnimatePresence>
         </motion.div>
       ) : (
-        <div className="card-wood overflow-hidden rounded-2xl">
+        <div className="card-wood overflow-hidden rounded-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-wood-header text-white">
+              <thead className="table-head">
                 <tr>
                   <th className="px-4 py-3 text-start">{t('productName')}</th>
                   <th className="px-4 py-3 text-start">{t('brand')}</th>
@@ -382,7 +415,7 @@ export const StockPage = () => {
                     <td className="px-4 py-2.5 font-medium text-wood-dark">
                       <span className="flex items-center gap-1.5">
                         {p.name}
-                        {isDivisible(p) && <Beaker size={13} className="shrink-0 text-wood-warm" />}
+                        {isDivisible(p) && <PackageOpen size={13} className="shrink-0 text-wood-warm" />}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-wood-medium">{p.brand}</td>
